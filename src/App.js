@@ -1,7 +1,7 @@
 /* eslint-disable no-undef */
 /* eslint-disable no-unused-vars */
 import React, { useState, useEffect, useRef } from 'react';
-import { Users, BookOpen, Calendar, Plus, Trash2, Edit2, Check, X, AlertCircle, Sparkles, Copy, Loader2, FileText, Download, Settings, ArrowUp, ArrowDown, ArrowUpDown, RefreshCcw, LogOut, Lock, UserCog, ClipboardList } from 'lucide-react';
+import { Users, BookOpen, Calendar, Plus, Trash2, Edit2, Check, X, AlertCircle, Sparkles, Copy, Loader2, FileText, Download, Settings, ArrowUp, ArrowDown, ArrowUpDown, RefreshCcw, LogOut, Lock, UserCog, ClipboardList, Eye } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
 import { getFirestore, doc, setDoc, getDoc } from 'firebase/firestore';
