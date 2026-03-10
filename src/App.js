@@ -68,8 +68,23 @@ const weekDatesInit = getThisWeekMonSat();
 
 const getDayName = (dateStr) => {
   if(!dateStr) return '';
-  const d = new Date(dateStr);
-  return DAYS.find(x => x.val === d.getDay())?.label || '';
+  const [y, m, d] = dateStr.split('-');
+  const dayIndex = new Date(y, m - 1, d).getDay();
+  return DAYS.find(x => x.val === dayIndex)?.label || '';
+};
+
+// 한국 표준시(KST) 기준 오늘 날짜 구하기
+const getTodayLocal = () => {
+  const offset = new Date().getTimezoneOffset() * 60000;
+  const dateOffset = new Date(Date.now() - offset);
+  return dateOffset.toISOString().split("T")[0];
+};
+
+// 날짜를 "3월 10일 (화)" 형태로 줄여주는 함수
+const formatShortDate = (dateStr) => {
+  if(!dateStr) return '';
+  const [, m, d] = dateStr.split('-');
+  return `${Number(m)}월 ${Number(d)}일 (${getDayName(dateStr)})`;
 };
 
 const getSchoolColor = (schoolName) => {
@@ -170,7 +185,12 @@ export default function App() {
 function MainApp({ role, user, setRole, teacherId }) {
   const isReadOnly = role === 'office';
   const [isLoaded, setIsLoaded] = useState(false);
-  const [activeTab, setActiveTab] = useState('report');
+  const [activeTab, setActiveTab] = useState(() => localStorage.getItem('activeTab') || 'daily');
+
+  // 탭이 바뀔 때마다 브라우저에 현재 탭 저장
+  useEffect(() => {
+    localStorage.setItem('activeTab', activeTab);
+  }, [activeTab]);
   
   const loadData = (key, defaultData) => {
     const saved = localStorage.getItem(key);
@@ -181,84 +201,12 @@ function MainApp({ role, user, setRole, teacherId }) {
     return parsed;
   };
 
-  // === [시작] 데모용 풍부한 목데이터 생성 로직 ===
-  const d1 = new Date(weekDatesInit.start);
-  const d2 = new Date(d1); d2.setDate(d1.getDate() + 2);
-  const d3 = new Date(d1); d3.setDate(d1.getDate() + 4);
-  const date1 = weekDatesInit.start;
-  const date2 = d2.toISOString().split('T')[0];
-  const date3 = d3.toISOString().split('T')[0];
-
-  const initialClasses = [
-    { id: 'c1', name: '중등 2-1 심화 (판서반)', days: [1, 3, 5], instructorId: 't1', type: 'lecture' },
-    { id: 'c2', name: '중등 3-1 기본 (판서반)', days: [2, 4], instructorId: 't1', type: 'lecture' },
-    { id: 'c3', name: '고등 수(상) 실력 (판서반)', days: [1, 5], instructorId: 't1', type: 'lecture' },
-    { id: 'c4', name: '중등 개별진도 (개별반)', days: [1, 3, 5], instructorId: 't1', type: 'individual' },
-    { id: 'c5', name: '고등 개별진도 (개별반)', days: [2, 4, 6], instructorId: 't1', type: 'individual' }
-  ];
-
-  const initialStudents = [
-    { id: 's1', name: '김지민', school: '임팩트중', classId: 'c1' }, { id: 's2', name: '이서준', school: '임팩트중', classId: 'c1' }, { id: 's3', name: '박도윤', school: '임팩트중', classId: 'c1' }, { id: 's4', name: '최시우', school: '임팩트중', classId: 'c1' }, { id: 's5', name: '정하준', school: '임팩트중', classId: 'c1' },
-    { id: 's6', name: '한지우', school: '수학중', classId: 'c2' }, { id: 's7', name: '오지훈', school: '수학중', classId: 'c2' }, { id: 's8', name: '서건우', school: '수학중', classId: 'c2' }, { id: 's9', name: '윤우진', school: '수학중', classId: 'c2' }, { id: 's10', name: '장서진', school: '수학중', classId: 'c2' },
-    { id: 's11', name: '임민준', school: '과학고', classId: 'c3' }, { id: 's12', name: '권예준', school: '과학고', classId: 'c3' }, { id: 's13', name: '신유준', school: '과학고', classId: 'c3' }, { id: 's14', name: '송주원', school: '과학고', classId: 'c3' }, { id: 's15', name: '안수호', school: '과학고', classId: 'c3' },
-    { id: 's16', name: '강다은', school: '미래중', classId: 'c4' }, { id: 's17', name: '조하은', school: '미래중', classId: 'c4' }, { id: 's18', name: '백서연', school: '미래중', classId: 'c4' }, { id: 's19', name: '유하윤', school: '미래중', classId: 'c4' }, { id: 's20', name: '설지유', school: '미래중', classId: 'c4' },
-    { id: 's21', name: '구민서', school: '영재고', classId: 'c5' }, { id: 's22', name: '양서현', school: '영재고', classId: 'c5' }, { id: 's23', name: '진수아', school: '영재고', classId: 'c5' }, { id: 's24', name: '차은서', school: '영재고', classId: 'c5' }, { id: 's25', name: '우지안', school: '영재고', classId: 'c5' }
-  ];
-
-  const initialRecords = { [date1]: {}, [date2]: {}, [date3]: {} };
-  initialStudents.forEach(s => {
-    initialRecords[date1][s.id] = { progress: 100, remark: '' };
-    initialRecords[date2][s.id] = { progress: 100, remark: '' };
-    initialRecords[date3][s.id] = { progress: 90, remark: '' };
-  });
-  
-  // 간헐적 지각/결석/성취도 반영
-  initialRecords[date1]['s2'] = { progress: 0, remark: '결석' };
-  initialRecords[date1]['s7'] = { progress: 80, remark: '지각' };
-  initialRecords[date2]['s12'] = { progress: 50, remark: '과제 미흡' };
-  initialRecords[date2]['s18'] = { progress: 0, remark: '결석' };
-  initialRecords[date3]['s22'] = { progress: 90, remark: '지각' };
-  initialRecords[date3]['s4'] = { progress: 70, remark: '' };
-
-  const initialTestRecords = {
-    't_c1_1': { id: 't_c1_1', classId: 'c1', date: date1, subject: '유리수와 순환소수', totalQ: '20', scores: { 's1': {score:20}, 's2': {score:''}, 's3': {score:15, retest:18}, 's4': {score:19}, 's5': {score:16} }},
-    't_c1_2': { id: 't_c1_2', classId: 'c1', date: date2, subject: '식의 계산', totalQ: '15', scores: { 's1': {score:15}, 's2': {score:14}, 's3': {score:12, retest:15}, 's4': {score:15}, 's5': {score:11, retest:14} }},
-    't_c1_3': { id: 't_c1_3', classId: 'c1', date: date3, subject: '일차부등식', totalQ: '20', scores: { 's1': {score:18}, 's2': {score:19}, 's3': {score:16}, 's4': {score:20}, 's5': {score:17} }},
-    
-    't_c2_1': { id: 't_c2_1', classId: 'c2', date: date1, subject: '제곱근과 실수', totalQ: '10', scores: { 's6': {score:10}, 's7': {score:8}, 's8': {score:9}, 's9': {score:6, retest:9}, 's10': {score:10} }},
-    't_c2_2': { id: 't_c2_2', classId: 'c2', date: date2, subject: '근호를 포함한 식의 계산', totalQ: '20', scores: { 's6': {score:20}, 's7': {score:19}, 's8': {score:15, retest:18}, 's9': {score:14, retest:19}, 's10': {score:20} }},
-    't_c2_3': { id: 't_c2_3', classId: 'c2', date: date3, subject: '다항식의 곱셈', totalQ: '15', scores: { 's6': {score:15}, 's7': {score:15}, 's8': {score:14}, 's9': {score:15}, 's10': {score:12, retest:15} }},
-    
-    't_c3_1': { id: 't_c3_1', classId: 'c3', date: date1, subject: '다항식의 연산', totalQ: '20', scores: { 's11': {score:19}, 's12': {score:20}, 's13': {score:16}, 's14': {score:17}, 's15': {score:18} }},
-    't_c3_2': { id: 't_c3_2', classId: 'c3', date: date2, subject: '나머지 정리', totalQ: '20', scores: { 's11': {score:20}, 's12': {score:18}, 's13': {score:19}, 's14': {score:15, retest:20}, 's15': {score:16} }},
-    't_c3_3': { id: 't_c3_3', classId: 'c3', date: date3, subject: '인수분해', totalQ: '20', scores: { 's11': {score:20}, 's12': {score:19}, 's13': {score:20}, 's14': {score:20}, 's15': {score:19} }},
-  };
-
-  const initialIndivTests = {};
-  let indivTestId = 1;
-  const subjectsC4 = ['1차 방정식', '그래프와 비례', '기본 도형'];
-  const subjectsC5 = ['복소수', '이차방정식', '이차함수'];
-  
-  initialStudents.filter(s => s.classId === 'c4').forEach(s => {
-    [date1, date2, date3].forEach((d, idx) => {
-      initialIndivTests[`it_${indivTestId}`] = { id: `it_${indivTestId}`, classId: 'c4', studentId: s.id, date: d, subject: subjectsC4[idx], totalQ: '15', score: (10 + Math.floor(Math.random()*6)), retest: '' };
-      indivTestId++;
-    });
-  });
-  initialStudents.filter(s => s.classId === 'c5').forEach(s => {
-    [date1, date2, date3].forEach((d, idx) => {
-      initialIndivTests[`it_${indivTestId}`] = { id: `it_${indivTestId}`, classId: 'c5', studentId: s.id, date: d, subject: subjectsC5[idx], totalQ: '20', score: (15 + Math.floor(Math.random()*6)), retest: '' };
-      indivTestId++;
-    });
-  });
-  // === [끝] 데모용 풍부한 목데이터 생성 로직 ===
-
-  const [instructors, setInstructors] = useState(() => loadData('instructors', [{ id: 't1', username: 'teacher', password: '1234', name: '김선생' }]));
-  const [classes, setClasses] = useState(() => loadData('classes', initialClasses));
-  const [students, setStudents] = useState(() => loadData('students', initialStudents));
-  const [records, setRecords] = useState(() => loadData('records', initialRecords));
-  const [testRecords, setTestRecords] = useState(() => loadData('testRecords', initialTestRecords));
-  const [individualTestRecords, setIndividualTestRecords] = useState(() => loadData('individualTestRecords', initialIndivTests));
+  const [instructors, setInstructors] = useState(() => loadData('instructors', []));
+  const [classes, setClasses] = useState(() => loadData('classes', []));
+  const [students, setStudents] = useState(() => loadData('students', []));
+  const [records, setRecords] = useState(() => loadData('records', {}));
+  const [testRecords, setTestRecords] = useState(() => loadData('testRecords', {}));
+  const [individualTestRecords, setIndividualTestRecords] = useState(() => loadData('individualTestRecords', {}));
 
   const [reportRemarks, setReportRemarks] = useState({});
   const [excludeFromReport, setExcludeFromReport] = useState(() => loadData('excludeFromReport', {})); 
@@ -623,10 +571,15 @@ function MainApp({ role, user, setRole, teacherId }) {
   const targetClasses = visibleClasses.filter(c => c.days.includes(selectedDayOfWeek));
 
   // --- 판서반(공통) 테스트 로직 ---
-  const handleAddLectureTestRow = () => {
+ const handleAddLectureTestRow = () => {
     if (isReadOnly || !testClassId) return;
     const newId = 'test_' + Date.now();
-    setTestRecords(prev => ({ ...prev, [newId]: { id: newId, classId: testClassId, date: new Date().toISOString().split('T')[0], subject: '', totalQ: '', scores: {} } }));
+    setTestRecords(prev => ({ ...prev, [newId]: { id: newId, classId: testClassId, date: getTodayLocal(), subject: '', totalQ: '', scores: {} } }));
+  };
+  const handleAddIndivTestRow = () => {
+    if (isReadOnly || !testClassId || !selectedIndivStudent) return;
+    const newId = 'itest_' + Date.now();
+    setIndividualTestRecords(prev => ({ ...prev, [newId]: { id: newId, classId: testClassId, studentId: selectedIndivStudent, date: getTodayLocal(), subject: '', totalQ: '', score: '', retest: '' } }));
   };
 
   const handleLectureTestChange = (testId, field, value) => {
@@ -1207,6 +1160,7 @@ function MainApp({ role, user, setRole, teacherId }) {
                   <label className="font-semibold text-gray-700 whitespace-nowrap">기준 날짜:</label>
                   <input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="border border-gray-300 rounded-md p-2 focus:ring-2 focus:ring-blue-500 outline-none w-36" />
                 </div>
+            {viewMode === 'daily' && (
                 <div className="flex items-center gap-1 md:ml-auto bg-white p-1 rounded-md border border-gray-200 shadow-sm overflow-x-auto">
                   {getWeekDays(selectedDate).map((dateStr, idx) => {
                     const [, m, d] = dateStr.split('-');
@@ -1218,7 +1172,8 @@ function MainApp({ role, user, setRole, teacherId }) {
                       </button>
                     )
                   })}
-                </div>
+                  </div>
+                )}
               </div>
 
               <div className="flex gap-2 mb-6">
@@ -1378,10 +1333,7 @@ function MainApp({ role, user, setRole, teacherId }) {
                     {visibleClasses.map(c => <option key={c.id} value={c.id}>{c.name} ({c.type==='individual'?'개별':'판서'})</option>)}
                   </select>
                 </div>
-                {testClassId && visibleClasses.find(c => c.id === testClassId)?.type !== 'individual' && !isReadOnly && (
-                  <button onClick={handleAddLectureTestRow} className="bg-purple-600 text-white px-4 py-2 rounded-md flex items-center gap-2 hover:bg-purple-700 shadow-sm font-bold"><Plus size={18} /> 공통 테스트 항목 추가</button>
-                )}
-               {visibleClasses.some(c => c.id === testClassId) && visibleClasses.find(c => c.id === testClassId)?.type !== 'individual' && !isReadOnly && (
+                {visibleClasses.some(c => c.id === testClassId) && visibleClasses.find(c => c.id === testClassId)?.type !== 'individual' && !isReadOnly && (
                   <button onClick={handleAddLectureTestRow} className="bg-purple-600 text-white px-4 py-2 rounded-md flex items-center gap-2 hover:bg-purple-700 shadow-sm font-bold"><Plus size={18} /> 공통 테스트 항목 추가</button>
                 )}
                 {visibleClasses.some(c => c.id === testClassId) && visibleClasses.find(c => c.id === testClassId)?.type !== 'individual' && (
@@ -1422,9 +1374,9 @@ function MainApp({ role, user, setRole, teacherId }) {
                             <table className="w-full text-center min-w-[700px] border-collapse">
                               <thead>
                                 <tr className="bg-purple-50 text-purple-900 text-sm font-bold border-y border-purple-200">
-                                  <th className="p-2 border-r border-purple-100 w-36">시험날짜</th>
-                                  <th className="p-2 border-r border-purple-100 min-w-[200px]">테스트 과정명 (자동줄바꿈)</th>
-                                  <th className="p-2 border-r border-purple-100 w-16">총문제</th>
+                                  <th className="p-2 border-r border-purple-100 w-32 whitespace-nowrap">시험날짜</th>
+                                  <th className="p-2 border-r border-purple-100 min-w-[150px] whitespace-nowrap">테스트 과정명</th>
+                                  <th className="p-2 border-r border-purple-100 w-16 whitespace-nowrap">총문항</th>
                                   <th className="p-2 border-r border-purple-100 w-16">점수</th>
                                   <th className="p-2 border-r border-purple-100 w-16">재시</th>
                                   {!isReadOnly && <th className="p-2 w-12">삭제</th>}
@@ -1443,12 +1395,12 @@ function MainApp({ role, user, setRole, teacherId }) {
 
                                   return (
                                     <tr key={test.id} className="hover:bg-gray-50 group">
-                                      <td className="p-2 border-r border-gray-200">
-                                        <input type="date" value={test.date} onChange={e => handleIndivTestChange(test.id, 'date', e.target.value)} className="w-full text-center outline-none bg-transparent focus:ring-2 focus:ring-purple-500 rounded text-sm"/>
-                                        <div className="text-[10px] text-gray-400 mt-0.5">{getDayName(test.date)}요일</div>
+                                      <td className="p-2 border-r border-gray-200 align-middle">
+                                        <input type="date" value={test.date} onChange={e => handleIndivTestChange(test.id, 'date', e.target.value)} className="w-full text-center outline-none bg-transparent focus:ring-2 focus:ring-purple-500 rounded text-xs font-bold text-purple-800 mb-1"/>
+                                        <div className="text-[11px] text-gray-500 text-center font-medium">{formatShortDate(test.date)}</div>
                                       </td>
-                                      <td className="p-2 border-r border-gray-200 text-left">
-                                        <AutoResizeTextarea value={test.subject} onChange={e => handleIndivTestChange(test.id, 'subject', e.target.value)} placeholder="단원명 입력" className="w-full text-sm outline-none bg-transparent focus:ring-2 focus:ring-purple-500 rounded p-1" />
+                                      <td className="p-2 border-r border-gray-200 text-left align-middle">
+                                        <input type="text" value={test.subject} onChange={e => handleIndivTestChange(test.id, 'subject', e.target.value)} placeholder="과정명 입력 (줄바꿈 불가)" className="w-full text-sm outline-none bg-transparent focus:bg-white focus:ring-2 focus:ring-purple-500 rounded p-1.5 border border-transparent hover:border-purple-200" />
                                       </td>
                                       <td className="p-2 border-r border-gray-200">
                                         <input type="number" value={test.totalQ} onChange={e => handleIndivTestChange(test.id, 'totalQ', e.target.value)} className="w-full text-center outline-none font-bold text-gray-700 bg-transparent focus:bg-white focus:ring-2 focus:ring-purple-300 rounded" placeholder="문항"/>
@@ -1483,9 +1435,9 @@ function MainApp({ role, user, setRole, teacherId }) {
                         <table className="w-full text-center min-w-max border-collapse">
                           <thead>
                             <tr className="bg-purple-50 text-purple-900 text-sm font-bold border-b border-purple-200">
-                              <th className="p-3 border-r border-purple-100 w-36 sticky left-0 bg-purple-50 z-10 shadow-[1px_0_0_#e9d5ff]">시험날짜</th>
-                              <th className="p-3 border-r border-purple-100 min-w-[200px]">공통 과정명 (단원명)</th>
-                              <th className="p-3 border-r border-purple-100 w-16">총문제</th>
+                              <th className="p-3 border-r border-purple-100 w-32 sticky left-0 bg-purple-50 z-10 shadow-[1px_0_0_#e9d5ff] whitespace-nowrap">시험날짜</th>
+                              <th className="p-3 border-r border-purple-100 min-w-[150px] whitespace-nowrap">공통 과정명</th>
+                              <th className="p-3 border-r border-purple-100 w-16 whitespace-nowrap">총문항</th>
                               {classStds.map(student => (
                                 <th key={student.id} colSpan="2" className="p-2 border-r border-purple-100 bg-purple-100/50">
                                   <div className="text-sm">{student.name}</div><div className="text-[10px] font-normal text-purple-600">{student.school}</div>
@@ -1502,12 +1454,12 @@ function MainApp({ role, user, setRole, teacherId }) {
                           <tbody className={`divide-y divide-gray-200 text-sm ${isReadOnly ? 'pointer-events-none' : ''}`}>
                             {Object.values(testRecords).filter(t => t.classId === testClassId).sort((a, b) => a.date.localeCompare(b.date)).map(test => (
                               <tr key={test.id} className="hover:bg-gray-50">
-                                <td className="p-2 border-r border-gray-200 sticky left-0 bg-white group-hover:bg-gray-50 z-10 shadow-[1px_0_0_#e5e7eb]">
-                                  <input type="date" value={test.date} onChange={(e) => handleLectureTestChange(test.id, 'date', e.target.value)} className="w-full bg-transparent text-center outline-none focus:ring-2 focus:ring-purple-500 rounded text-sm"/>
-                                  <div className="text-[10px] text-gray-400 mt-0.5">{getDayName(test.date)}요일</div>
+                                <td className="p-2 border-r border-gray-200 sticky left-0 bg-white group-hover:bg-gray-50 z-10 shadow-[1px_0_0_#e5e7eb] align-middle">
+                                  <input type="date" value={test.date} onChange={(e) => handleLectureTestChange(test.id, 'date', e.target.value)} className="w-full bg-transparent text-center outline-none focus:ring-2 focus:ring-purple-500 rounded text-xs font-bold text-purple-800 mb-1"/>
+                                  <div className="text-[11px] text-gray-500 text-center font-medium">{formatShortDate(test.date)}</div>
                                 </td>
-                                <td className="p-2 border-r border-gray-200 text-left">
-                                  <AutoResizeTextarea value={test.subject} onChange={(e) => handleLectureTestChange(test.id, 'subject', e.target.value)} placeholder="단원명 입력" className="w-full outline-none bg-transparent focus:ring-2 focus:ring-purple-500 rounded p-1"/>
+                                <td className="p-2 border-r border-gray-200 text-left align-middle">
+                                  <input type="text" value={test.subject} onChange={(e) => handleLectureTestChange(test.id, 'subject', e.target.value)} placeholder="과정명 입력 (줄바꿈 불가)" className="w-full text-sm outline-none bg-transparent focus:bg-white focus:ring-2 focus:ring-purple-500 rounded p-1.5 border border-transparent hover:border-purple-200"/>
                                 </td>
                                 <td className="p-2 border-r border-gray-200">
                                   <input type="number" value={test.totalQ} onChange={(e) => handleLectureTestChange(test.id, 'totalQ', e.target.value)} className="w-full bg-transparent text-center outline-none font-bold focus:bg-white focus:ring-2 focus:ring-purple-300 rounded"/>
