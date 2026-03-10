@@ -391,6 +391,21 @@ function MainApp({ role, user, setRole, teacherId }) {
   const [newInstId, setNewInstId] = useState('');
   const [newInstPw, setNewInstPw] = useState('');
 
+  const [editingInstId, setEditingInstId] = useState(null);
+  const [editInstData, setEditInstData] = useState({ name: '', password: '' });
+
+  const startEditingInst = (inst) => {
+    setEditingInstId(inst.id);
+    setEditInstData({ name: inst.name, password: inst.password });
+  };
+
+  const saveEditedInst = () => {
+    if (!editInstData.name || !editInstData.password) return showToast('이름과 비밀번호를 입력하세요.', 'error');
+    setInstructors(instructors.map(i => i.id === editingInstId ? { ...i, ...editInstData } : i));
+    setEditingInstId(null);
+    showToast('강사 정보가 수정되었습니다.');
+  };
+
   const handleAddInstructor = () => {
     if (!newInstName || !newInstId || !newInstPw) return showToast('강사 정보를 모두 입력하세요.', 'error');
     setInstructors([...instructors, { id: 'inst_' + Date.now(), name: newInstName, username: newInstId, password: newInstPw }]);
@@ -569,7 +584,7 @@ function MainApp({ role, user, setRole, teacherId }) {
     if (isReadOnly) return;
     setRecords(prev => {
       const dateRecords = prev[dateStr] || {};
-      const studentRecord = dateRecords[studentId] || { progress: 0, remark: '' };
+      const studentRecord = dateRecords[studentId] || { progress: 100, remark: '' };
       let currentRemark = studentRecord.remark || '';
       let newProgress = studentRecord.progress;
 
@@ -994,7 +1009,27 @@ function MainApp({ role, user, setRole, teacherId }) {
                   <thead><tr className="bg-gray-100 text-gray-700 text-sm border-b"><th className="p-3">강사명</th><th className="p-3">아이디</th><th className="p-3">비밀번호</th><th className="p-3 text-center">관리</th></tr></thead>
                   <tbody className="divide-y divide-gray-100">
                     {instructors.map(inst => (
-                      <tr key={inst.id}><td className="p-3 font-medium">{inst.name}</td><td className="p-3 text-gray-600">{inst.username}</td><td className="p-3 text-gray-600">{inst.password}</td><td className="p-3 text-center"><button onClick={()=>handleDeleteInstructor(inst.id)} className="text-red-500 hover:bg-red-50 p-1.5 rounded"><Trash2 size={16}/></button></td></tr>
+                      <tr key={inst.id}>
+                        {editingInstId === inst.id ? (
+                          <>
+                            <td className="p-2"><input type="text" value={editInstData.name} onChange={e => setEditInstData({...editInstData, name: e.target.value})} className="border rounded p-1 w-full text-sm" /></td>
+                            <td className="p-3 text-gray-400 text-sm">{inst.username} (ID불변)</td>
+                            <td className="p-2"><input type="text" value={editInstData.password} onChange={e => setEditInstData({...editInstData, password: e.target.value})} className="border rounded p-1 w-full text-sm" /></td>
+                            <td className="p-2 text-center flex justify-center gap-2">
+                              <button onClick={saveEditedInst} className="text-green-600 hover:bg-green-100 p-1.5 rounded"><Check size={16} /></button>
+                              <button onClick={() => setEditingInstId(null)} className="text-gray-500 hover:bg-gray-200 p-1.5 rounded"><X size={16} /></button>
+                            </td>
+                          </>
+                        ) : (
+                          <>
+                            <td className="p-3 font-medium">{inst.name}</td><td className="p-3 text-gray-600">{inst.username}</td><td className="p-3 text-gray-600">{inst.password}</td>
+                            <td className="p-3 text-center flex justify-center gap-2">
+                              <button onClick={() => startEditingInst(inst)} className="text-blue-500 hover:bg-blue-50 p-1.5 rounded"><Edit2 size={16}/></button>
+                              <button onClick={() => handleDeleteInstructor(inst.id)} className="text-red-500 hover:bg-red-50 p-1.5 rounded"><Trash2 size={16}/></button>
+                            </td>
+                          </>
+                        )}
+                      </tr>
                     ))}
                   </tbody>
                </table>
@@ -1009,11 +1044,11 @@ function MainApp({ role, user, setRole, teacherId }) {
                   <h3 className="font-semibold text-gray-700 mb-4">새로운 반 추가</h3>
                   <div className="flex flex-col md:flex-row gap-4 mb-4">
                     <div className="flex-1"><label className="block text-xs font-medium text-gray-500 mb-1">반 이름</label><input type="text" value={newClassName} onChange={e => setNewClassName(e.target.value)} placeholder="예) 월수금 중등기초반" className="w-full border border-gray-300 rounded p-2 focus:ring-2 focus:ring-blue-500 outline-none" /></div>
-                    <div className="w-40"><label className="block text-xs font-medium text-gray-500 mb-1">수업 형태 (테스트 방식)</label>
-                      <select value={newClassType} onChange={e => setNewClassType(e.target.value)} className="w-full border border-gray-300 rounded p-2 focus:ring-2 focus:ring-blue-500 outline-none font-bold text-gray-700">
-                        <option value="lecture">칠판 판서반 (공통)</option>
-                        <option value="individual">개별 진도반 (개별)</option>
-                      </select>
+                    <div className="w-56"><label className="block text-xs font-medium text-gray-500 mb-1">수업 형태 (테스트 방식)</label>
+                      <div className="flex gap-2 h-[42px]">
+                        <button onClick={() => setNewClassType('lecture')} className={`flex-1 rounded border font-bold text-sm transition-colors ${newClassType === 'lecture' ? 'bg-blue-600 text-white border-blue-600 shadow-md' : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'}`}>판서반</button>
+                        <button onClick={() => setNewClassType('individual')} className={`flex-1 rounded border font-bold text-sm transition-colors ${newClassType === 'individual' ? 'bg-purple-600 text-white border-purple-600 shadow-md' : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'}`}>개별반</button>
+                      </div>
                     </div>
                     {role === 'admin' && (
                       <div className="w-32"><label className="block text-xs font-medium text-gray-500 mb-1">담당 강사</label><select value={newClassInstructor} onChange={e => setNewClassInstructor(e.target.value)} className="w-full border border-gray-300 rounded p-2 focus:ring-2 focus:ring-blue-500 outline-none"><option value="">선택...</option>{instructors.map(inst => <option key={inst.id} value={inst.id}>{inst.name}</option>)}</select></div>
@@ -1209,7 +1244,7 @@ function MainApp({ role, user, setRole, teacherId }) {
                           ) : (
                             <div className="divide-y divide-gray-100">
                               {classStudents.map(student => {
-                                const record = (records[selectedDate] && records[selectedDate][student.id]) || { progress: 0, remark: '' };
+                                const record = (records[selectedDate] && records[selectedDate][student.id]) || { progress: 100, remark: '' };
                                 return (
                                   <div key={student.id} className="p-4 flex flex-col md:flex-row md:items-center gap-4 hover:bg-gray-50/50 transition-colors">
                                     <div className="w-48">
@@ -1288,7 +1323,7 @@ function MainApp({ role, user, setRole, teacherId }) {
                                   <tr key={student.id} className="border-b border-gray-100 hover:bg-gray-50">
                                     <td className="p-3 border-r font-medium whitespace-nowrap sticky left-0 bg-white group-hover:bg-gray-50 z-10">{student.name}</td>
                                     {weekDates.map(d => {
-                                      const record = records[d]?.[student.id] || { progress: 0, remark: '' };
+                                      const record = records[d]?.[student.id] || { progress: 100, remark: '' };
                                       return (
                                         <td key={d} className="p-3 border-r text-left align-top">
                                           <div className="flex flex-col gap-2">
@@ -1346,12 +1381,15 @@ function MainApp({ role, user, setRole, teacherId }) {
                 {testClassId && visibleClasses.find(c => c.id === testClassId)?.type !== 'individual' && !isReadOnly && (
                   <button onClick={handleAddLectureTestRow} className="bg-purple-600 text-white px-4 py-2 rounded-md flex items-center gap-2 hover:bg-purple-700 shadow-sm font-bold"><Plus size={18} /> 공통 테스트 항목 추가</button>
                 )}
-                {testClassId && visibleClasses.find(c => c.id === testClassId)?.type !== 'individual' && (
+               {visibleClasses.some(c => c.id === testClassId) && visibleClasses.find(c => c.id === testClassId)?.type !== 'individual' && !isReadOnly && (
+                  <button onClick={handleAddLectureTestRow} className="bg-purple-600 text-white px-4 py-2 rounded-md flex items-center gap-2 hover:bg-purple-700 shadow-sm font-bold"><Plus size={18} /> 공통 테스트 항목 추가</button>
+                )}
+                {visibleClasses.some(c => c.id === testClassId) && visibleClasses.find(c => c.id === testClassId)?.type !== 'individual' && (
                   <button onClick={handleExportCSV} className="bg-green-600 text-white px-4 py-2 rounded-md flex items-center gap-2 hover:bg-green-700 shadow-sm font-bold"><Download size={18} /> CSV 다운로드</button>
                 )}
               </div>
 
-              {!testClassId ? (
+              {!visibleClasses.some(c => c.id === testClassId) ? (
                 <div className="text-center py-20 text-gray-400 border-2 border-dashed border-gray-200 rounded-xl">대상 반을 먼저 선택해주세요.</div>
               ) : (
                 (() => {
