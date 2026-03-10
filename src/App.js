@@ -1403,11 +1403,11 @@ function MainApp({ role, user, setRole, teacherId }) {
                                   return (
                                     <tr key={test.id} className="hover:bg-gray-50 group">
                                       <td className="p-2 border-r border-gray-200 align-middle relative hover:bg-purple-50 transition-colors cursor-pointer">
-                                        <input type="date" value={test.date} onChange={e => handleIndivTestChange(test.id, 'date', e.target.value)} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"/>
-                                        <div className="font-bold text-purple-800 text-center">{formatShortDate(test.date)}</div>
+                                        <input type="date" value={test.date} onChange={e => handleIndivTestChange(test.id, 'date', e.target.value)} onClick={(e) => { try { e.target.showPicker(); } catch(err){} }} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-20"/>
+                                        <div className="font-bold text-purple-800 text-center pointer-events-none relative z-10">{formatShortDate(test.date)}</div>
                                       </td>
                                       <td className="p-2 border-r border-gray-200 text-left align-middle">
-                                        <input type="text" value={test.subject} onChange={e => handleIndivTestChange(test.id, 'subject', e.target.value)} placeholder="과정명 입력 (줄바꿈 불가)" className="w-full text-sm outline-none bg-transparent focus:bg-white focus:ring-2 focus:ring-purple-500 rounded p-1.5 border border-transparent hover:border-purple-200" />
+                                        <input type="text" value={test.subject} onChange={e => handleIndivTestChange(test.id, 'subject', e.target.value)} placeholder="단원명 입력" className="w-full text-sm outline-none bg-transparent focus:bg-white focus:ring-2 focus:ring-purple-500 rounded p-1.5 border border-transparent hover:border-purple-200" />
                                       </td>
                                       <td className="p-2 border-r border-gray-200">
                                         <input type="number" value={test.totalQ} onChange={e => handleIndivTestChange(test.id, 'totalQ', e.target.value)} className="w-full text-center outline-none font-bold text-gray-700 bg-transparent focus:bg-white focus:ring-2 focus:ring-purple-300 rounded" placeholder="문항"/>
@@ -1462,11 +1462,11 @@ function MainApp({ role, user, setRole, teacherId }) {
                             {Object.values(testRecords).filter(t => t.classId === testClassId).sort((a, b) => a.date.localeCompare(b.date)).map(test => (
                               <tr key={test.id} className="hover:bg-gray-50">
                                 <td className="p-2 border-r border-gray-200 sticky left-0 bg-white group-hover:bg-purple-50 z-10 shadow-[1px_0_0_#e5e7eb] align-middle relative cursor-pointer">
-                                  <input type="date" value={test.date} onChange={(e) => handleLectureTestChange(test.id, 'date', e.target.value)} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"/>
-                                  <div className="font-bold text-purple-800 text-center">{formatShortDate(test.date)}</div>
+                                  <input type="date" value={test.date} onChange={(e) => handleLectureTestChange(test.id, 'date', e.target.value)} onClick={(e) => { try { e.target.showPicker(); } catch(err){} }} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-20"/>
+                                  <div className="font-bold text-purple-800 text-center pointer-events-none relative z-10">{formatShortDate(test.date)}</div>
                                 </td>
                                 <td className="p-2 border-r border-gray-200 text-left align-middle">
-                                  <input type="text" value={test.subject} onChange={(e) => handleLectureTestChange(test.id, 'subject', e.target.value)} placeholder="과정명 입력 (줄바꿈 불가)" className="w-full text-sm outline-none bg-transparent focus:bg-white focus:ring-2 focus:ring-purple-500 rounded p-1.5 border border-transparent hover:border-purple-200"/>
+                                  <input type="text" value={test.subject} onChange={(e) => handleLectureTestChange(test.id, 'subject', e.target.value)} placeholder="단원명 입력" className="w-full text-sm outline-none bg-transparent focus:bg-white focus:ring-2 focus:ring-purple-500 rounded p-1.5 border border-transparent hover:border-purple-200"/>
                                 </td>
                                 <td className="p-2 border-r border-gray-200">
                                   <input type="number" value={test.totalQ} onChange={(e) => handleLectureTestChange(test.id, 'totalQ', e.target.value)} className="w-full bg-transparent text-center outline-none font-bold focus:bg-white focus:ring-2 focus:ring-purple-300 rounded"/>
@@ -1604,6 +1604,17 @@ function MainApp({ role, user, setRole, teacherId }) {
               
               {/* 관리자 전용 브라우저 탭 설정 */}
               {role === 'admin' && (
+                <>
+                  <div className="bg-red-50 p-6 rounded-xl border border-red-200 shadow-sm mb-6">
+                    <h3 className="text-lg font-bold text-red-900 mb-2 flex items-center gap-2"><AlertCircle size={20} /> 서버 데이터베이스 강제 청소</h3>
+                    <p className="text-sm text-red-700 mb-4">삭제해도 계속 부활하는 과거의 유령 테스트 데이터들을 서버에서 완전히 날려버립니다.</p>
+                    <button onClick={async () => {
+                      if(window.confirm('정말 테스트 데이터를 완전히 초기화하시겠습니까? (현재 입력된 테스트도 모두 백지화됩니다)')) {
+                        setTestRecords({}); setIndividualTestRecords({});
+                        try { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'academy', 'mainData'), { testRecords: {}, individualTestRecords: {} }); alert('청소 완료! 새로고침을 진행해주세요.'); window.location.reload(); } catch(e) { alert('청소 실패: DB 접근 권한을 확인하세요.'); }
+                      }
+                    }} className="bg-red-600 text-white px-4 py-2 rounded font-bold hover:bg-red-700 shadow-sm">유령 테스트 데이터 영구 삭제</button>
+                  </div>
                 <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
                   <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2"><Eye size={20} className="text-blue-500" /> 시스템 외관 설정 (관리자 전용)</h3>
                   <div className="flex flex-col gap-4">
