@@ -101,7 +101,7 @@ function LoginScreen({ onLogin, error }) {
 
   return (
     <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4 font-sans">
-      <div className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-sm">
+      <div className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-md">
         <div className="flex justify-center mb-6">
           <div className="bg-blue-100 p-4 rounded-full"><BookOpen className="text-blue-600" size={32} /></div>
         </div>
@@ -264,6 +264,9 @@ function MainApp({ role, user, setRole, teacherId }) {
   const [excludeFromReport, setExcludeFromReport] = useState(() => loadData('excludeFromReport', {})); 
   const [classWeeklyProgress, setClassWeeklyProgress] = useState({});
   const [individualWeeklyProgress, setIndividualWeeklyProgress] = useState({});
+  // 시스템 제목/아이콘 및 강사 필터 상태 추가
+  const [systemSettings, setSystemSettings] = useState(() => loadData('systemSettings', { title: '임팩트 수학학원', iconUrl: '' }));
+  const [filterInstructor, setFilterInstructor] = useState('');
 
   const [offlineTemplate, setOfflineTemplate] = useState(DEFAULT_TEMPLATE);
   const [testItemTemplate, setTestItemTemplate] = useState(DEFAULT_TEST_ITEM_TEMPLATE);
@@ -326,6 +329,7 @@ function MainApp({ role, user, setRole, teacherId }) {
           if(d.offlineTemplate) setOfflineTemplate(d.offlineTemplate);
           if(d.testItemTemplate) setTestItemTemplate(d.testItemTemplate);
           if(d.noTestMessage) setNoTestMessage(d.noTestMessage);
+          if(d.systemSettings) setSystemSettings(d.systemSettings);
         }
         setIsLoaded(true);
         clearTimeout(fallbackTimer);
@@ -362,6 +366,21 @@ function MainApp({ role, user, setRole, teacherId }) {
   useEffect(() => { if(isLoaded) syncData('offlineTemplate', offlineTemplate); }, [offlineTemplate, isLoaded]);
   useEffect(() => { if(isLoaded) syncData('testItemTemplate', testItemTemplate); }, [testItemTemplate, isLoaded]);
   useEffect(() => { if(isLoaded) syncData('noTestMessage', noTestMessage); }, [noTestMessage, isLoaded]);
+  useEffect(() => { if(isLoaded) syncData('systemSettings', systemSettings); }, [systemSettings, isLoaded]);
+
+  // 브라우저 탭 제목 및 아이콘 실시간 반영 로직
+  useEffect(() => {
+    document.title = systemSettings.title || '임팩트 수학학원';
+    if (systemSettings.iconUrl) {
+      let link = document.querySelector("link[rel~='icon']");
+      if (!link) {
+        link = document.createElement('link');
+        link.rel = 'icon';
+        document.head.appendChild(link);
+      }
+      link.href = systemSettings.iconUrl;
+    }
+  }, [systemSettings]);
 
   // --- 권한 및 필터링 ---
   const visibleClasses = role === 'teacher' ? classes.filter(c => c.instructorId === teacherId) : classes;
@@ -482,12 +501,25 @@ function MainApp({ role, user, setRole, teacherId }) {
   };
 
   const getSortedStudentsForManagement = () => {
-    return [...visibleStudents].sort((a, b) => {
-      let aVal = a[sortConfig.key];
-      let bVal = b[sortConfig.key];
+    // 1. 강사 필터 적용 (관리자/행정팀 전용)
+    let filtered = [...visibleStudents];
+    if ((role === 'admin' || role === 'office') && filterInstructor) {
+      filtered = filtered.filter(s => {
+        const cls = classes.find(c => c.id === s.classId);
+        return cls && cls.instructorId === filterInstructor;
+      });
+    }
+    // 2. 정렬 적용
+    return filtered.sort((a, b) => {
+      let aVal = a[sortConfig.key]; let bVal = b[sortConfig.key];
       if (sortConfig.key === 'classId') {
-        aVal = classes.find(c => c.id === a.classId)?.name || '';
-        bVal = classes.find(c => c.id === b.classId)?.name || '';
+        aVal = classes.find(c => c.id === a.classId)?.name || ''; bVal = classes.find(c => c.id === b.classId)?.name || '';
+      }
+      if (sortConfig.key === 'instructorId') { // 강사별 정렬 추가
+        const aInst = classes.find(c => c.id === a.classId)?.instructorId || '';
+        const bInst = classes.find(c => c.id === b.classId)?.instructorId || '';
+        aVal = instructors.find(i => i.id === aInst)?.name || '';
+        bVal = instructors.find(i => i.id === bInst)?.name || '';
       }
       if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
       if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
@@ -1066,6 +1098,17 @@ function MainApp({ role, user, setRole, teacherId }) {
                   <button onClick={handleAddStudent} className="bg-blue-600 text-white px-4 py-2 rounded flex items-center gap-2 hover:bg-blue-700"><Plus size={18} /> 학생 추가</button>
                 </div>
               )}
+              
+              {/* 관리자/행정팀용 강사 필터 드롭다운 */}
+              {(role === 'admin' || role === 'office') && (
+                <div className="mb-4 flex items-center gap-2 bg-white p-3 rounded-lg border border-gray-200 shadow-sm w-fit">
+                  <span className="text-sm font-bold text-gray-700">👨‍🏫 강사별 학생 보기:</span>
+                  <select value={filterInstructor} onChange={e => setFilterInstructor(e.target.value)} className="border border-gray-300 rounded p-1.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none">
+                    <option value="">전체 강사</option>
+                    {instructors.map(inst => <option key={inst.id} value={inst.id}>{inst.name} 선생님</option>)}
+                  </select>
+                </div>
+              )}
               <div className="overflow-x-auto rounded-lg border border-gray-200 shadow-sm">
                 <table className="w-full text-left border-collapse">
                   <thead>
@@ -1076,9 +1119,8 @@ function MainApp({ role, user, setRole, teacherId }) {
                       <th className="p-3 cursor-pointer hover:bg-gray-200 transition-colors select-none" onClick={() => handleSort('school')}>
                         <div className="flex items-center gap-2">학교 {renderSortIcon('school')}</div>
                       </th>
-                      <th className="p-3 cursor-pointer hover:bg-gray-200 transition-colors select-none" onClick={() => handleSort('classId')}>
-                        <div className="flex items-center gap-2">소속 반 {renderSortIcon('classId')}</div>
-                      </th>
+                      <th className="p-3 cursor-pointer hover:bg-gray-200 transition-colors select-none" onClick={() => handleSort('classId')}><div className="flex items-center gap-2">소속 반 {renderSortIcon('classId')}</div></th>
+                      {(role === 'admin' || role === 'office') && <th className="p-3 cursor-pointer hover:bg-gray-200 transition-colors select-none" onClick={() => handleSort('instructorId')}><div className="flex items-center gap-2">담당 강사 {renderSortIcon('instructorId')}</div></th>}
                       {!isReadOnly && <th className="p-3 w-24 text-center">관리</th>}
                     </tr>
                   </thead>
@@ -1102,6 +1144,7 @@ function MainApp({ role, user, setRole, teacherId }) {
                               <td className="p-3 font-medium text-gray-800">{student.name}</td>
                               <td className="p-3"><span className={`${schoolTheme} px-2 py-1 rounded text-xs font-medium border`}>{student.school}</span></td>
                               <td className="p-3"><span className={`${classTheme.bg} ${classTheme.text} ${classTheme.border} border px-2 py-1 rounded text-xs font-medium`}>{classes.find(c => c.id === student.classId)?.name || '알 수 없음'}</span></td>
+                              {(role === 'admin' || role === 'office') && <td className="p-3 text-sm font-medium text-gray-600">{instructors.find(i => i.id === classes.find(c => c.id === student.classId)?.instructorId)?.name || '미지정'}</td>}
                               {!isReadOnly && (
                                 <td className="p-3 text-center flex justify-center gap-2">
                                   <button onClick={() => startEditingStudent(student)} className="text-blue-500 hover:bg-blue-100 p-1 rounded"><Edit2 size={18} /></button>
@@ -1561,6 +1604,25 @@ function MainApp({ role, user, setRole, teacherId }) {
           {/* 설정 */}
           {activeTab === 'settings' && !isReadOnly && (
             <div className="max-w-3xl mx-auto space-y-6">
+              
+              {/* 관리자 전용 브라우저 탭 설정 */}
+              {role === 'admin' && (
+                <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                  <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2"><Eye size={20} className="text-blue-500" /> 시스템 외관 설정 (관리자 전용)</h3>
+                  <div className="flex flex-col gap-4">
+                    <div>
+                      <label className="block text-sm font-bold text-gray-700 mb-1">브라우저 탭 이름 (Title)</label>
+                      <input type="text" value={systemSettings?.title || ''} onChange={(e) => setSystemSettings(prev => ({...prev, title: e.target.value}))} placeholder="예: 임팩트 수학학원" className="w-full border border-gray-300 rounded p-2 focus:ring-2 focus:ring-blue-500 outline-none text-sm bg-gray-50" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-bold text-gray-700 mb-1">브라우저 아이콘 (Favicon URL)</label>
+                      <p className="text-[10px] text-gray-500 mb-1">인터넷에 올려진 이미지 주소(http://...)를 입력하세요. (.png, .ico 권장)</p>
+                      <input type="text" value={systemSettings?.iconUrl || ''} onChange={(e) => setSystemSettings(prev => ({...prev, iconUrl: e.target.value}))} placeholder="예: https://example.com/icon.png" className="w-full border border-gray-300 rounded p-2 focus:ring-2 focus:ring-blue-500 outline-none text-sm bg-gray-50" />
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
                 <h3 className="text-lg font-bold text-gray-900 mb-6 flex items-center gap-2"><Settings size={20} className="text-gray-500" /> 리포트 기본 양식 템플릿 설정</h3>
                 
