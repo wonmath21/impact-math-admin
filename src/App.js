@@ -114,11 +114,10 @@ function LoginScreen({ onLogin, error }) {
           {error && <div className="mt-4 p-3 bg-red-50 border border-red-200 text-red-600 text-sm font-bold rounded text-center">{error}</div>}
         </div>
         <div className="mt-8 bg-gray-50 p-4 rounded-lg border border-gray-200 text-xs text-gray-500">
-          <p className="font-semibold text-gray-600 mb-2">계정 안내</p>
-          <ul className="space-y-1.5">
-            <li><span className="font-bold text-blue-600 inline-block w-12">관리자</span> admin / admin</li>
-            <li><span className="font-bold text-rose-600 inline-block w-12">행정팀</span> office / office</li>
-            <li><span className="font-bold text-emerald-600 inline-block w-12">강사용</span> teacher / 1234</li>
+          <p className="text-sm font-bold text-gray-700 mb-2">접속 안내</p>
+          <ul className="text-xs text-gray-600 space-y-2">
+            <li>• <strong className="text-blue-600">강사 계정은 관리자에게 아이디와 비밀번호를 부여받아야 접속할 수 있습니다.</strong></li>
+            <li>• 관리자 및 행정팀은 지정된 전용 계정으로 로그인해 주십시오.</li>
           </ul>
         </div>
       </div>
@@ -128,8 +127,8 @@ function LoginScreen({ onLogin, error }) {
 
 // --- 2. 최상위 App 컴포넌트 ---
 export default function App() {
-  const [user, setUser] = useState(null);
-  const [role, setRole] = useState(null); 
+  const [role, setRole] = useState(() => localStorage.getItem('userRole') || null); 
+  const [teacherId, setTeacherId] = useState(() => localStorage.getItem('teacherId') || null);
   const [teacherId, setTeacherId] = useState(null);
   const [loginError, setLoginError] = useState('');
 
@@ -147,22 +146,18 @@ export default function App() {
 
   const handleLogin = async (id, pw) => {
     setLoginError('');
-    if (id === 'admin' && pw === 'admin') { setRole('admin'); return; }
-    if (id === 'office' && pw === 'office') { setRole('office'); return; }
-    
+    if (id === 'admin' && pw === 'admin') { setRole('admin'); localStorage.setItem('userRole', 'admin'); return; }
+    if (id === 'office' && pw === 'office') { setRole('office'); localStorage.setItem('userRole', 'office'); return; }
     try {
       const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'academy', 'mainData');
       const docSnap = await getDoc(docRef);
       if (docSnap.exists()) {
         const instructorsList = docSnap.data().instructors || [];
         const matched = instructorsList.find(inst => inst.username === id && inst.password === pw);
-        if (matched) { setRole('teacher'); setTeacherId(matched.id); return; }
+        if (matched) { setRole('teacher'); setTeacherId(matched.id); localStorage.setItem('userRole', 'teacher'); localStorage.setItem('teacherId', matched.id); return; }
       }
-      if (id === 'teacher' && pw === '1234') { setRole('teacher'); setTeacherId('t1'); return; }
-      
       setLoginError('아이디 또는 비밀번호가 올바르지 않습니다.');
     } catch(e) {
-      if (id === 'teacher' && pw === '1234') { setRole('teacher'); setTeacherId('t1'); return; }
       setLoginError('데이터베이스 연결 중 오류가 발생했습니다.');
     }
   };
@@ -609,20 +604,26 @@ function MainApp({ role, user, setRole, teacherId }) {
     }
   };
 
-  const handleLectureScoreChange = (testId, studentId, field, value) => {
+ const handleLectureScoreChange = (testId, studentId, field, value) => {
     if (isReadOnly) return;
     const numericValue = value === '' ? '' : Number(value);
     const testData = testRecords[testId];
     const totalQ = Number(testData.totalQ);
 
-    if (numericValue !== '' && totalQ > 0 && numericValue > totalQ) {
-      const errorKey = `${testId}_${studentId}_${field}`;
-      setTestErrors(prev => ({ ...prev, [errorKey]: true }));
-      setTestRecords(prev => ({ ...prev, [testId]: { ...prev[testId], scores: { ...prev[testId].scores, [studentId]: { ...(prev[testId].scores[studentId] || {score: '', retest: ''}), [field]: '' } } } }));
-      setTimeout(() => setTestErrors(prev => ({ ...prev, [errorKey]: false })), 2500);
-      return;
-    }
-    setTestRecords(prev => ({ ...prev, [testId]: { ...prev[testId], scores: { ...prev[testId].scores, [studentId]: { ...(prev[testId].scores[studentId] || {score: '', retest: ''}), [field]: numericValue } } } }));
+    setTestRecords(prev => {
+      const prevScores = prev[testId].scores[studentId] || {score: '', retest: ''};
+      let newScores = { ...prevScores, [field]: numericValue };
+
+      if (numericValue !== '' && totalQ > 0 && numericValue > totalQ) {
+        const errorKey = `${testId}_${studentId}_${field}`;
+        setTestErrors(e => ({ ...e, [errorKey]: true }));
+        setTimeout(() => setTestErrors(e => ({ ...e, [errorKey]: false })), 2500);
+        newScores[field] = ''; 
+      } else if (field === 'score' && numericValue !== '' && totalQ > 0) {
+        if (numericValue / totalQ >= 0.8) newScores.retest = ''; 
+      }
+      return { ...prev, [testId]: { ...prev[testId], scores: { ...prev[testId].scores, [studentId]: newScores } } };
+    });
   };
 
   const calculateTestAverage = (testId) => {
@@ -685,18 +686,23 @@ function MainApp({ role, user, setRole, teacherId }) {
     const isNumField = field === 'totalQ' || field === 'score' || field === 'retest';
     const finalVal = isNumField ? (value === '' ? '' : Number(value)) : value;
 
-    const testData = individualTestRecords[testId];
-    if ((field === 'score' || field === 'retest') && finalVal !== '') {
-        const totalQ = Number(testData.totalQ);
-        if (totalQ > 0 && finalVal > totalQ) {
-            const errorKey = `${testId}_${field}`;
-            setTestErrors(prev => ({ ...prev, [errorKey]: true }));
-            setIndividualTestRecords(prev => ({ ...prev, [testId]: { ...prev[testId], [field]: '' } }));
-            setTimeout(() => setTestErrors(prev => ({ ...prev, [errorKey]: false })), 2500);
-            return;
-        }
-    }
-    setIndividualTestRecords(prev => ({ ...prev, [testId]: { ...prev[testId], [field]: finalVal } }));
+    setIndividualTestRecords(prev => {
+      const testData = prev[testId];
+      const totalQ = Number(testData.totalQ);
+      let newRecord = { ...testData, [field]: finalVal };
+
+      if ((field === 'score' || field === 'retest') && finalVal !== '') {
+          if (totalQ > 0 && finalVal > totalQ) {
+              const errorKey = `${testId}_${field}`;
+              setTestErrors(e => ({ ...e, [errorKey]: true }));
+              setTimeout(() => setTestErrors(e => ({ ...e, [errorKey]: false })), 2500);
+              newRecord[field] = ''; 
+          } else if (field === 'score') {
+              if (totalQ > 0 && (finalVal / totalQ) >= 0.8) newRecord.retest = '';
+          }
+      }
+      return { ...prev, [testId]: newRecord };
+    });
   };
 
   // --- 결석/지각 자동 멘트 생성 (날짜만 단순 나열) ---
@@ -903,7 +909,7 @@ function MainApp({ role, user, setRole, teacherId }) {
             <h1 className="text-2xl font-bold flex items-center gap-2"><BookOpen className="text-blue-600"/> 임팩트수학 통합관리</h1>
             <span className="text-xs text-gray-500">{role === 'admin' ? '👑 관리자' : role === 'office' ? '🏢 행정팀' : '👨‍🏫 강사'} 계정 접속중</span>
           </div>
-          <button onClick={() => setRole(null)} className="flex items-center gap-1 text-sm text-gray-500 hover:text-red-500 font-bold"><LogOut size={16}/> 로그아웃</button>
+          <button onClick={() => { setRole(null); localStorage.removeItem('userRole'); localStorage.removeItem('teacherId'); }} className="flex items-center gap-1 text-sm text-gray-500 hover:text-red-500 font-bold"><LogOut size={16}/> 로그아웃</button>
         </header>
 
         {isReadOnly && (
