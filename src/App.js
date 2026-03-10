@@ -127,9 +127,9 @@ function LoginScreen({ onLogin, error }) {
 
 // --- 2. 최상위 App 컴포넌트 ---
 export default function App() {
+  const [user, setUser] = useState(null);
   const [role, setRole] = useState(() => localStorage.getItem('userRole') || null); 
   const [teacherId, setTeacherId] = useState(() => localStorage.getItem('teacherId') || null);
-  const [teacherId, setTeacherId] = useState(null);
   const [loginError, setLoginError] = useState('');
 
   useEffect(() => {
