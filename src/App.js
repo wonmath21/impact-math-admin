@@ -576,11 +576,6 @@ function MainApp({ role, user, setRole, teacherId }) {
     const newId = 'test_' + Date.now();
     setTestRecords(prev => ({ ...prev, [newId]: { id: newId, classId: testClassId, date: getTodayLocal(), subject: '', totalQ: '', scores: {} } }));
   };
-  const handleAddIndivTestRow = () => {
-    if (isReadOnly || !testClassId || !selectedIndivStudent) return;
-    const newId = 'itest_' + Date.now();
-    setIndividualTestRecords(prev => ({ ...prev, [newId]: { id: newId, classId: testClassId, studentId: selectedIndivStudent, date: getTodayLocal(), subject: '', totalQ: '', score: '', retest: '' } }));
-  };
 
   const handleLectureTestChange = (testId, field, value) => {
     if (isReadOnly) return;
@@ -678,7 +673,7 @@ function MainApp({ role, user, setRole, teacherId }) {
   const handleAddIndivTestRow = () => {
     if (isReadOnly || !testClassId || !selectedIndivStudent) return;
     const newId = 'itest_' + Date.now();
-    setIndividualTestRecords(prev => ({ ...prev, [newId]: { id: newId, classId: testClassId, studentId: selectedIndivStudent, date: new Date().toISOString().split('T')[0], subject: '', totalQ: '', score: '', retest: '' } }));
+    setIndividualTestRecords(prev => ({ ...prev, [newId]: { id: newId, classId: testClassId, studentId: selectedIndivStudent, date: getTodayLocal(), subject: '', totalQ: '', score: '', retest: '' } }));
   };
 
   const handleIndivTestChange = (testId, field, value) => {
