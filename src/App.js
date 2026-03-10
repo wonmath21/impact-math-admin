@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Users, BookOpen, Calendar, Plus, Trash2, Edit2, Check, X, AlertCircle, Sparkles, Copy, Loader2, FileText, Download, Settings, ArrowUp, ArrowDown, ArrowUpDown, RefreshCcw, LogOut, Lock, UserCog, ClipboardList, Eye } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
-import { getFirestore, doc, setDoc, getDoc } from 'firebase/firestore';
+import { getFirestore, doc, setDoc, getDoc, updateDoc } from 'firebase/firestore';
 
 // --- 1. Firebase 설정 ---
 let firebaseConfig;
@@ -296,9 +296,21 @@ function MainApp({ role, user, setRole, teacherId }) {
   }, []); // 의존성 배열을 비워 한 번만 실행되도록 고정
 
   // 데이터 동기화
-  const syncData = (key, value) => {
+  const syncData = async (key, value) => {
     if (!isLoaded || isReadOnly) return;
-    setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'academy', 'mainData'), { [key]: value }, { merge: true }).catch(e => console.warn(e));
+    const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'academy', 'mainData');
+    
+    try {
+      // 기존 병합(merge: true) 방식 대신, 해당 항목을 통째로 덮어쓰는(Overwite) 강력한 업데이트 적용 (유령 데이터 완전 삭제 가능)
+      await updateDoc(docRef, { [key]: value });
+    } catch (error) {
+      // 만약 DB가 아예 비어있어서 업데이트할 대상이 없다면, 최초 생성(setDoc) 실행
+      if (error.code === 'not-found') {
+        await setDoc(docRef, { [key]: value });
+      } else {
+        console.warn("Firebase 저장 에러:", error);
+      }
+    }
   };
 
   useEffect(() => { if(isLoaded) syncData('instructors', instructors); }, [instructors, isLoaded]);
@@ -1390,9 +1402,9 @@ function MainApp({ role, user, setRole, teacherId }) {
 
                                   return (
                                     <tr key={test.id} className="hover:bg-gray-50 group">
-                                      <td className="p-2 border-r border-gray-200 align-middle">
-                                        <input type="date" value={test.date} onChange={e => handleIndivTestChange(test.id, 'date', e.target.value)} className="w-full text-center outline-none bg-transparent focus:ring-2 focus:ring-purple-500 rounded text-xs font-bold text-purple-800 mb-1"/>
-                                        <div className="text-[11px] text-gray-500 text-center font-medium">{formatShortDate(test.date)}</div>
+                                      <td className="p-2 border-r border-gray-200 align-middle relative hover:bg-purple-50 transition-colors cursor-pointer">
+                                        <input type="date" value={test.date} onChange={e => handleIndivTestChange(test.id, 'date', e.target.value)} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"/>
+                                        <div className="font-bold text-purple-800 text-center">{formatShortDate(test.date)}</div>
                                       </td>
                                       <td className="p-2 border-r border-gray-200 text-left align-middle">
                                         <input type="text" value={test.subject} onChange={e => handleIndivTestChange(test.id, 'subject', e.target.value)} placeholder="과정명 입력 (줄바꿈 불가)" className="w-full text-sm outline-none bg-transparent focus:bg-white focus:ring-2 focus:ring-purple-500 rounded p-1.5 border border-transparent hover:border-purple-200" />
@@ -1449,9 +1461,9 @@ function MainApp({ role, user, setRole, teacherId }) {
                           <tbody className={`divide-y divide-gray-200 text-sm ${isReadOnly ? 'pointer-events-none' : ''}`}>
                             {Object.values(testRecords).filter(t => t.classId === testClassId).sort((a, b) => a.date.localeCompare(b.date)).map(test => (
                               <tr key={test.id} className="hover:bg-gray-50">
-                                <td className="p-2 border-r border-gray-200 sticky left-0 bg-white group-hover:bg-gray-50 z-10 shadow-[1px_0_0_#e5e7eb] align-middle">
-                                  <input type="date" value={test.date} onChange={(e) => handleLectureTestChange(test.id, 'date', e.target.value)} className="w-full bg-transparent text-center outline-none focus:ring-2 focus:ring-purple-500 rounded text-xs font-bold text-purple-800 mb-1"/>
-                                  <div className="text-[11px] text-gray-500 text-center font-medium">{formatShortDate(test.date)}</div>
+                                <td className="p-2 border-r border-gray-200 sticky left-0 bg-white group-hover:bg-purple-50 z-10 shadow-[1px_0_0_#e5e7eb] align-middle relative cursor-pointer">
+                                  <input type="date" value={test.date} onChange={(e) => handleLectureTestChange(test.id, 'date', e.target.value)} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"/>
+                                  <div className="font-bold text-purple-800 text-center">{formatShortDate(test.date)}</div>
                                 </td>
                                 <td className="p-2 border-r border-gray-200 text-left align-middle">
                                   <input type="text" value={test.subject} onChange={(e) => handleLectureTestChange(test.id, 'subject', e.target.value)} placeholder="과정명 입력 (줄바꿈 불가)" className="w-full text-sm outline-none bg-transparent focus:bg-white focus:ring-2 focus:ring-purple-500 rounded p-1.5 border border-transparent hover:border-purple-200"/>
