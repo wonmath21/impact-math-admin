@@ -5,7 +5,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Users, BookOpen, Calendar, Plus, Trash2, Edit2, Check, X, AlertCircle, Sparkles, Copy, Loader2, FileText, Download, Settings, ArrowUp, ArrowDown, ArrowUpDown, Eye, RefreshCcw, LogOut, Lock, UserCog, ClipboardList } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
-import { getFirestore, doc, setDoc, getDoc, onSnapshot } from 'firebase/firestore';
+import { getFirestore, doc, setDoc, getDoc } from 'firebase/firestore';
 
 // --- 1. Firebase 설정 ---
 const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
@@ -130,8 +130,7 @@ export default function App() {
     try {
       let currentUser = user || auth.currentUser;
       if (!currentUser) {
-        const cred = await signInAnonymously(auth);
-        currentUser = cred.user;
+        try { const cred = await signInAnonymously(auth); currentUser = cred.user; } catch(e) {} // 오류 무시 후 아래 강제 읽기 시도
       }
       
       const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'academy', 'mainData');
@@ -165,32 +164,23 @@ function MainApp({ role, user, handleLogout, teacherId }) {
   const [isLoaded, setIsLoaded] = useState(false);
   const [activeTab, setActiveTab] = useState('daily');
   
-  const loadData = (key, defaultData) => {
-    const saved = localStorage.getItem(key);
-    const parsed = saved ? JSON.parse(saved) : null;
-    if (!parsed || (Array.isArray(parsed) && parsed.length === 0) || (typeof parsed === 'object' && Object.keys(parsed).length === 0)) return defaultData;
-    return parsed;
-  };
-
-  // 데이터 상태
-  const [instructors, setInstructors] = useState(() => loadData('instructors', []));
-  const [classes, setClasses] = useState(() => loadData('classes', []));
-  const [students, setStudents] = useState(() => loadData('students', []));
-  const [records, setRecords] = useState(() => loadData('records', {}));
-  const [testRecords, setTestRecords] = useState(() => loadData('testRecords', {}));
-  const [individualTestRecords, setIndividualTestRecords] = useState(() => loadData('individualTestRecords', {}));
-
+  // 데이터 상태 (초기값은 빈 배열/객체)
+  const [instructors, setInstructors] = useState([]);
+  const [classes, setClasses] = useState([]);
+  const [students, setStudents] = useState([]);
+  const [records, setRecords] = useState({});
+  const [testRecords, setTestRecords] = useState({});
+  const [individualTestRecords, setIndividualTestRecords] = useState({});
   const [reportRemarks, setReportRemarks] = useState({});
-  const [excludeFromReport, setExcludeFromReport] = useState(() => loadData('excludeFromReport', {})); 
+  const [excludeFromReport, setExcludeFromReport] = useState({}); 
   const [classWeeklyProgress, setClassWeeklyProgress] = useState({});
   const [individualWeeklyProgress, setIndividualWeeklyProgress] = useState({});
-
   const [offlineTemplate, setOfflineTemplate] = useState(DEFAULT_TEMPLATE);
   const [testItemTemplate, setTestItemTemplate] = useState(DEFAULT_TEST_ITEM_TEMPLATE);
   const [noTestMessage, setNoTestMessage] = useState(DEFAULT_NO_TEST_MSG);
-  const [systemSettings, setSystemSettings] = useState(() => loadData('systemSettings', { title: '임팩트 수학학원', iconUrl: '' }));
+  const [systemSettings, setSystemSettings] = useState({ title: '임팩트 수학학원', iconUrl: '' });
 
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [selectedDate, setSelectedDate] = useState(getTodayLocal());
   const [testClassId, setTestClassId] = useState('');
   const [testErrors, setTestErrors] = useState({}); 
   const [reportStartDate, setReportStartDate] = useState(weekDatesInit.start);
@@ -216,6 +206,23 @@ function MainApp({ role, user, handleLogout, teacherId }) {
 
   const showToast = (message, type = 'success') => { setToast({ message, type }); setTimeout(() => setToast(null), 3000); };
 
+  const restoreDefaultTemplates = () => {
+    setOfflineTemplate(DEFAULT_TEMPLATE);
+    setTestItemTemplate(DEFAULT_TEST_ITEM_TEMPLATE);
+    setNoTestMessage(DEFAULT_NO_TEST_MSG);
+    showToast('모든 템플릿이 기본값으로 초기화되었습니다.');
+  };
+
+  const handleExportAllDataToJSON = () => {
+    const allData = { instructors, classes, students, records, testRecords, individualTestRecords, classWeeklyProgress, individualWeeklyProgress, reportRemarks, excludeFromReport, offlineTemplate, testItemTemplate, noTestMessage, systemSettings };
+    const blob = new Blob([JSON.stringify(allData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a'); link.href = url;
+    link.download = `임팩트수학_전체백업_${getTodayLocal()}.json`;
+    document.body.appendChild(link); link.click(); document.body.removeChild(link); URL.revokeObjectURL(url);
+    showToast('전체 데이터 백업 파일이 PC에 다운로드되었습니다.');
+  };
+
   // --- 백업 복구 기능 ---
   const fileInputRef = useRef(null);
 
@@ -232,51 +239,16 @@ function MainApp({ role, user, handleLogout, teacherId }) {
     reader.onload = async (e) => {
       try {
         const importedData = JSON.parse(e.target.result);
-        
+        // 서버 즉시 덮어쓰기
         await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'academy', 'mainData'), importedData);
-        
-        if(importedData.instructors) setInstructors(importedData.instructors);
-        if(importedData.classes) setClasses(importedData.classes);
-        if(importedData.students) setStudents(importedData.students);
-        if(importedData.records) setRecords(importedData.records);
-        if(importedData.testRecords) setTestRecords(importedData.testRecords);
-        if(importedData.individualTestRecords) setIndividualTestRecords(importedData.individualTestRecords);
-        if(importedData.classWeeklyProgress) setClassWeeklyProgress(importedData.classWeeklyProgress);
-        if(importedData.individualWeeklyProgress) setIndividualWeeklyProgress(importedData.individualWeeklyProgress);
-        if(importedData.reportRemarks) setReportRemarks(importedData.reportRemarks);
-        if(importedData.excludeFromReport) setExcludeFromReport(importedData.excludeFromReport);
-        if(importedData.offlineTemplate) setOfflineTemplate(importedData.offlineTemplate);
-        if(importedData.testItemTemplate) setTestItemTemplate(importedData.testItemTemplate);
-        if(importedData.noTestMessage) setNoTestMessage(importedData.noTestMessage);
-        if(importedData.systemSettings) setSystemSettings(importedData.systemSettings);
-        
-        showToast('데이터 복구가 성공적으로 완료되었습니다.', 'success');
+        showToast('데이터 복구가 성공적으로 완료되었습니다. 시스템을 재시작합니다.', 'success');
+        setTimeout(() => window.location.reload(), 1500); // 새로고침해도 안전장치 덕분에 절대 증발하지 않음
       } catch (error) {
         showToast('파일 형식이 올바르지 않거나 손상되었습니다.', 'error');
-        console.error(error);
       }
       event.target.value = ''; 
     };
     reader.readAsText(file);
-  };
-
-  const restoreDefaultTemplates = () => {
-    setOfflineTemplate(DEFAULT_TEMPLATE);
-    setTestItemTemplate(DEFAULT_TEST_ITEM_TEMPLATE);
-    setNoTestMessage(DEFAULT_NO_TEST_MSG);
-    showToast('모든 템플릿이 기본값으로 초기화되었습니다.');
-  };
-
-  const handleExportAllDataToJSON = () => {
-    const allData = { instructors, classes, students, records, testRecords, individualTestRecords, classWeeklyProgress, individualWeeklyProgress, reportRemarks, excludeFromReport, offlineTemplate, testItemTemplate, noTestMessage, systemSettings };
-    const blob = new Blob([JSON.stringify(allData, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a'); link.href = url;
-    const offset = new Date().getTimezoneOffset() * 60000;
-    const dateOffset = new Date(Date.now() - offset);
-    link.download = `임팩트수학_전체백업_${dateOffset.toISOString().split("T")[0]}.json`;
-    document.body.appendChild(link); link.click(); document.body.removeChild(link); URL.revokeObjectURL(url);
-    showToast('전체 데이터 백업 파일이 PC에 다운로드되었습니다.');
   };
 
   const [isDriveSyncing, setIsDriveSyncing] = useState(false);
@@ -291,88 +263,82 @@ function MainApp({ role, user, handleLogout, teacherId }) {
     } catch (error) { showToast('네트워크 오류로 백업에 실패했습니다.', 'error'); } finally { setIsDriveSyncing(false); }
   };
 
-  // --- DB 실시간 동기화 (onSnapshot 구독 최적화 적용) ---
+  // ★ 완벽한 이중 안전장치 (데이터 덮어쓰기 증발 방지)
+  const dataFetchedRef = useRef(false);     // DB를 완벽히 읽어왔는가?
+  const isInteractionRef = useRef(false);   // 인간이 화면을 클릭했는가?
+
+  useEffect(() => {
+    const unlock = () => { isInteractionRef.current = true; };
+    window.addEventListener('mousedown', unlock); window.addEventListener('keydown', unlock); window.addEventListener('touchstart', unlock);
+    return () => { window.removeEventListener('mousedown', unlock); window.removeEventListener('keydown', unlock); window.removeEventListener('touchstart', unlock); };
+  }, []);
+
   useEffect(() => {
     let isMounted = true;
-    let unsubscribe = null;
-    let fallbackTimer = setTimeout(() => { if(isMounted) setIsLoaded(true); }, 5000);
-
     const fetchDb = async () => {
-      if (!user) {
-        if (isMounted) setIsLoaded(true);
-        clearTimeout(fallbackTimer);
-        return;
-      }
       try {
         const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'academy', 'mainData');
+        const docSnap = await getDoc(docRef);
+        if (!isMounted) return;
         
-        unsubscribe = onSnapshot(docRef, (docSnap) => {
-          if (!isMounted) return;
-          if (docSnap.exists()) {
-            const d = docSnap.data();
-            
-            // 깊은 비교로 상태가 변경되었을 때만 업데이트 (무한 루프 원천 차단)
-            const updateIfChanged = (setter, newVal) => {
-              if (newVal !== undefined) setter(prev => JSON.stringify(prev) === JSON.stringify(newVal) ? prev : newVal);
-            };
-
-            updateIfChanged(setInstructors, d.instructors);
-            updateIfChanged(setClasses, d.classes);
-            updateIfChanged(setStudents, d.students);
-            updateIfChanged(setRecords, d.records);
-            updateIfChanged(setTestRecords, d.testRecords);
-            updateIfChanged(setIndividualTestRecords, d.individualTestRecords);
-            updateIfChanged(setClassWeeklyProgress, d.classWeeklyProgress);
-            updateIfChanged(setIndividualWeeklyProgress, d.individualWeeklyProgress);
-            updateIfChanged(setReportRemarks, d.reportRemarks);
-            updateIfChanged(setExcludeFromReport, d.excludeFromReport);
-            updateIfChanged(setOfflineTemplate, d.offlineTemplate);
-            updateIfChanged(setTestItemTemplate, d.testItemTemplate);
-            updateIfChanged(setNoTestMessage, d.noTestMessage);
-            updateIfChanged(setSystemSettings, d.systemSettings);
-          }
-          setIsLoaded(true);
-          clearTimeout(fallbackTimer);
-        }, (error) => {
-          console.error("onSnapshot Error:", error);
-          if (isMounted) setIsLoaded(true);
-          clearTimeout(fallbackTimer);
-        });
+        if (docSnap.exists()) {
+          const d = docSnap.data();
+          if(d.instructors) setInstructors(d.instructors);
+          if(d.classes) setClasses(d.classes);
+          if(d.students) setStudents(d.students);
+          if(d.records) setRecords(d.records);
+          if(d.testRecords) setTestRecords(d.testRecords);
+          if(d.individualTestRecords) setIndividualTestRecords(d.individualTestRecords);
+          if(d.classWeeklyProgress) setClassWeeklyProgress(d.classWeeklyProgress);
+          if(d.individualWeeklyProgress) setIndividualWeeklyProgress(d.individualWeeklyProgress);
+          if(d.reportRemarks) setReportRemarks(d.reportRemarks);
+          if(d.excludeFromReport) setExcludeFromReport(d.excludeFromReport);
+          if(d.offlineTemplate) setOfflineTemplate(d.offlineTemplate);
+          if(d.testItemTemplate) setTestItemTemplate(d.testItemTemplate);
+          if(d.noTestMessage) setNoTestMessage(d.noTestMessage);
+          if(d.systemSettings) setSystemSettings(d.systemSettings);
+        }
+        // ★ 서버에서 무사히 데이터를 읽어왔을 때만 자격을 부여함
+        dataFetchedRef.current = true; 
       } catch (e) {
+        console.error("DB Fetch Error:", e);
+      } finally {
         if (isMounted) setIsLoaded(true);
-        clearTimeout(fallbackTimer);
       }
     };
-    
     fetchDb();
-    
-    // 컴포넌트 언마운트 시 구독 해제하여 읽기 연산 비용 절약
-    return () => { 
-      isMounted = false; 
-      clearTimeout(fallbackTimer);
-      if (unsubscribe) unsubscribe(); 
-    };
-  }, [user]); 
+    return () => { isMounted = false; };
+  }, []); 
 
   const syncData = (key, value) => {
-    if (!isLoaded || isReadOnly) return;
+    // ★ 이중 방화벽: 화면 로딩 전, 읽기전용, DB로드 실패, 인간 클릭 없음 -> 이 중 하나라도 해당되면 절대 DB를 덮어쓰지 않음!
+    if (!isLoaded || isReadOnly || !dataFetchedRef.current || !isInteractionRef.current) return;
     setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'academy', 'mainData'), { [key]: value }, { merge: true }).catch(e => console.warn(e));
   };
 
-  useEffect(() => { if(isLoaded) syncData('instructors', instructors); }, [instructors, isLoaded]);
-  useEffect(() => { if(isLoaded) syncData('classes', classes); }, [classes, isLoaded]);
-  useEffect(() => { if(isLoaded) syncData('students', students); }, [students, isLoaded]);
-  useEffect(() => { if(isLoaded) syncData('records', records); }, [records, isLoaded]);
-  useEffect(() => { if(isLoaded) syncData('testRecords', testRecords); }, [testRecords, isLoaded]);
-  useEffect(() => { if(isLoaded) syncData('individualTestRecords', individualTestRecords); }, [individualTestRecords, isLoaded]);
-  useEffect(() => { if(isLoaded) syncData('classWeeklyProgress', classWeeklyProgress); }, [classWeeklyProgress, isLoaded]);
-  useEffect(() => { if(isLoaded) syncData('individualWeeklyProgress', individualWeeklyProgress); }, [individualWeeklyProgress, isLoaded]);
-  useEffect(() => { if(isLoaded) syncData('reportRemarks', reportRemarks); }, [reportRemarks, isLoaded]);
-  useEffect(() => { if(isLoaded) syncData('excludeFromReport', excludeFromReport); }, [excludeFromReport, isLoaded]);
-  useEffect(() => { if(isLoaded) syncData('offlineTemplate', offlineTemplate); }, [offlineTemplate, isLoaded]);
-  useEffect(() => { if(isLoaded) syncData('testItemTemplate', testItemTemplate); }, [testItemTemplate, isLoaded]);
-  useEffect(() => { if(isLoaded) syncData('noTestMessage', noTestMessage); }, [noTestMessage, isLoaded]);
-  useEffect(() => { if(isLoaded) syncData('systemSettings', systemSettings); }, [systemSettings, isLoaded]);
+  useEffect(() => { syncData('instructors', instructors); }, [instructors]);
+  useEffect(() => { syncData('classes', classes); }, [classes]);
+  useEffect(() => { syncData('students', students); }, [students]);
+  useEffect(() => { syncData('records', records); }, [records]);
+  useEffect(() => { syncData('testRecords', testRecords); }, [testRecords]);
+  useEffect(() => { syncData('individualTestRecords', individualTestRecords); }, [individualTestRecords]);
+  useEffect(() => { syncData('classWeeklyProgress', classWeeklyProgress); }, [classWeeklyProgress]);
+  useEffect(() => { syncData('individualWeeklyProgress', individualWeeklyProgress); }, [individualWeeklyProgress]);
+  useEffect(() => { syncData('reportRemarks', reportRemarks); }, [reportRemarks]);
+  useEffect(() => { syncData('excludeFromReport', excludeFromReport); }, [excludeFromReport]);
+  useEffect(() => { syncData('offlineTemplate', offlineTemplate); }, [offlineTemplate]);
+  useEffect(() => { syncData('testItemTemplate', testItemTemplate); }, [testItemTemplate]);
+  useEffect(() => { syncData('noTestMessage', noTestMessage); }, [noTestMessage]);
+  useEffect(() => { syncData('systemSettings', systemSettings); }, [systemSettings]);
+
+  useEffect(() => {
+    document.title = systemSettings.title || '임팩트 수학학원';
+    if (systemSettings.iconUrl) {
+      let link = document.querySelector("link[rel~='icon']");
+      if (!link) { link = document.createElement('link'); link.rel = 'icon'; document.head.appendChild(link); }
+      link.href = systemSettings.iconUrl;
+    }
+  }, [systemSettings]);
 
   const visibleClasses = role === 'teacher' ? classes.filter(c => c.instructorId === teacherId) : classes;
   const visibleStudents = role === 'teacher' ? students.filter(s => visibleClasses.some(c => c.id === s.classId)) : students;
@@ -550,7 +516,7 @@ function MainApp({ role, user, handleLogout, teacherId }) {
   const handleAddLectureTestRow = () => {
     if (isReadOnly || !testClassId) return;
     const newId = 'test_' + Date.now();
-    setTestRecords(prev => ({ ...prev, [newId]: { id: newId, classId: testClassId, date: new Date().toISOString().split('T')[0], subject: '', totalQ: '', scores: {} } }));
+    setTestRecords(prev => ({ ...prev, [newId]: { id: newId, classId: testClassId, date: getTodayLocal(), subject: '', totalQ: '', scores: {} } }));
   };
 
   const handleLectureTestChange = (testId, field, value) => {
@@ -625,7 +591,7 @@ function MainApp({ role, user, handleLogout, teacherId }) {
   const handleAddIndivTestRow = () => {
     if (isReadOnly || !testClassId || !selectedIndivStudent) return;
     const newId = 'itest_' + Date.now();
-    setIndividualTestRecords(prev => ({ ...prev, [newId]: { id: newId, classId: testClassId, studentId: selectedIndivStudent, date: new Date().toISOString().split('T')[0], subject: '', totalQ: '', score: '', retest: '' } }));
+    setIndividualTestRecords(prev => ({ ...prev, [newId]: { id: newId, classId: testClassId, studentId: selectedIndivStudent, date: getTodayLocal(), subject: '', totalQ: '', score: '', retest: '' } }));
   };
 
   const handleIndivTestChange = (testId, field, value) => {
@@ -732,6 +698,8 @@ function MainApp({ role, user, handleLogout, teacherId }) {
     return sortConfig.direction === 'asc' ? <ArrowUp size={14} className="text-blue-600" /> : <ArrowDown size={14} className="text-blue-600" />;
   };
 
+  if (!isLoaded) return <div className="min-h-screen flex items-center justify-center bg-gray-50"><Loader2 className="animate-spin text-blue-500" size={32}/></div>;
+
   return (
     <div className={`min-h-screen p-4 md:p-8 font-sans relative ${isReadOnly ? 'bg-emerald-50' : 'bg-gray-50'}`}>
       <style>{`input[type="number"]::-webkit-outer-spin-button, input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; } input[type="number"] { -moz-appearance: textfield; }`}</style>
@@ -787,7 +755,7 @@ function MainApp({ role, user, handleLogout, teacherId }) {
           <div className="flex flex-col">
             <h1 className="text-2xl font-bold flex items-center gap-2">
               <BookOpen className="text-blue-600"/> 임팩트수학 통합관리
-              {!isLoaded && <span className="text-xs font-bold text-orange-500 flex items-center gap-1 ml-2 bg-orange-50 px-2 py-1 rounded-md border border-orange-200"><Loader2 size={12} className="animate-spin"/> 동기화 중...</span>}
+              <span className="text-xs font-bold text-gray-500 bg-gray-100 px-2 py-1 rounded ml-2 border border-gray-200">v2.1</span>
             </h1>
           </div>
           <div className="flex items-center gap-4 bg-white px-4 py-2 rounded-lg shadow-sm border border-gray-200">
@@ -837,8 +805,25 @@ function MainApp({ role, user, handleLogout, teacherId }) {
                   <tbody className="divide-y divide-gray-100">
                     {instructors.map(inst => (
                       <tr key={inst.id}>
-                        <td className="p-3 font-medium">{inst.name}</td><td className="p-3 text-gray-600">{inst.username}</td><td className="p-3 text-gray-600">{inst.password}</td>
-                        <td className="p-3 text-center"><button onClick={()=>handleDeleteInstructor(inst.id)} className="text-red-500 hover:bg-red-50 p-1.5 rounded"><Trash2 size={16}/></button></td>
+                        {editingInstId === inst.id ? (
+                          <>
+                            <td className="p-2"><input type="text" value={editInstData.name} onChange={e => setEditInstData({...editInstData, name: e.target.value})} className="border rounded p-1 w-full text-sm" /></td>
+                            <td className="p-3 text-gray-400 text-sm">{inst.username} (ID불변)</td>
+                            <td className="p-2"><input type="text" value={editInstData.password} onChange={e => setEditInstData({...editInstData, password: e.target.value})} className="border rounded p-1 w-full text-sm" /></td>
+                            <td className="p-2 text-center flex justify-center gap-2">
+                              <button onClick={saveEditedInst} className="text-green-600 hover:bg-green-100 p-1.5 rounded"><Check size={16} /></button>
+                              <button onClick={() => setEditingInstId(null)} className="text-gray-500 hover:bg-gray-200 p-1.5 rounded"><X size={16} /></button>
+                            </td>
+                          </>
+                        ) : (
+                          <>
+                            <td className="p-3 font-medium">{inst.name}</td><td className="p-3 text-gray-600">{inst.username}</td><td className="p-3 text-gray-600">{inst.password}</td>
+                            <td className="p-3 text-center flex justify-center gap-2">
+                              <button onClick={() => startEditingInst(inst)} className="text-blue-500 hover:bg-blue-50 p-1.5 rounded"><Edit2 size={16}/></button>
+                              <button onClick={() => handleDeleteInstructor(inst.id)} className="text-red-500 hover:bg-red-50 p-1.5 rounded"><Trash2 size={16}/></button>
+                            </td>
+                          </>
+                        )}
                       </tr>
                     ))}
                   </tbody>
@@ -1113,7 +1098,7 @@ function MainApp({ role, user, handleLogout, teacherId }) {
                                   <tr key={student.id} className="border-b border-gray-100 hover:bg-gray-50">
                                     <td className="p-3 border-r font-medium whitespace-nowrap sticky left-0 bg-white group-hover:bg-gray-50 z-10">{student.name}</td>
                                     {weekDates.map(d => {
-                                      const record = records[d]?.[student.id] || { progress: 100, remark: '' };
+                                      const record = records[d]?.[student.id] || { progress: 0, remark: '' };
                                       return (
                                         <td key={d} className="p-3 border-r text-left align-top">
                                           <div className="flex flex-col gap-2">
