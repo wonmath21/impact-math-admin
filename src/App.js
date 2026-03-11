@@ -212,9 +212,13 @@ function MainApp({ role, user, setRole, teacherId }) {
   const [excludeFromReport, setExcludeFromReport] = useState(() => loadData('excludeFromReport', {})); 
   const [classWeeklyProgress, setClassWeeklyProgress] = useState({});
   const [individualWeeklyProgress, setIndividualWeeklyProgress] = useState({});
-  // 시스템 제목/아이콘 및 강사 필터 상태 추가
+  
+  // 상태 변수 (검색 및 강사 필터용 추가 완료)
   const [systemSettings, setSystemSettings] = useState(() => loadData('systemSettings', { title: '임팩트 수학학원', iconUrl: '' }));
   const [filterInstructor, setFilterInstructor] = useState('');
+  const [searchKeyword, setSearchKeyword] = useState('');           // 학생 통합 검색어
+  const [testInstructorId, setTestInstructorId] = useState('');     // 테스트 탭 강사 필터
+  const [reportInstructorId, setReportInstructorId] = useState(''); // 리포트 탭 강사 필터
 
   const [offlineTemplate, setOfflineTemplate] = useState(DEFAULT_TEMPLATE);
   const [testItemTemplate, setTestItemTemplate] = useState(DEFAULT_TEST_ITEM_TEMPLATE);
@@ -443,14 +447,12 @@ function MainApp({ role, user, setRole, teacherId }) {
     showToast('신규 강사가 생성되었습니다.');
   };
 
+  // 강사 삭제 시 반 미지정 연쇄 처리 적용 완료
   const handleDeleteInstructor = (id) => {
-    if (classes.some(c => c.instructorId === id)) {
-      showToast('이 강사에게 배정된 반이 있습니다. 반을 먼저 변경/삭제하세요.', 'error');
-      return;
-    }
-    if (window.confirm('정말 이 강사 계정을 삭제하시겠습니까?')) {
+    if (window.confirm('정말 이 강사 계정을 삭제하시겠습니까?\n(이 강사에게 배정되었던 반들은 자동으로 "미지정" 상태가 됩니다.)')) {
       setInstructors(instructors.filter(i => i.id !== id));
-      showToast('강사 계정이 삭제되었습니다.', 'success');
+      setClasses(classes.map(c => c.instructorId === id ? { ...c, instructorId: '' } : c));
+      showToast('강사가 삭제되었으며, 관련 반은 미지정 처리되었습니다.', 'success');
     }
   };
 
@@ -546,21 +548,29 @@ function MainApp({ role, user, setRole, teacherId }) {
   };
 
   const getSortedStudentsForManagement = () => {
-    // 1. 강사 필터 적용 (관리자/행정팀 전용)
+    // 1차: 권한별 분리는 visibleStudents에 이미 적용되어 있음
     let filtered = [...visibleStudents];
+    
+    // 2차: 강사 선택 필터 (관리자/행정팀 전용)
     if ((role === 'admin' || role === 'office') && filterInstructor) {
       filtered = filtered.filter(s => {
         const cls = classes.find(c => c.id === s.classId);
         return cls && cls.instructorId === filterInstructor;
       });
     }
-    // 2. 정렬 적용
+
+    // 3차: 학생 이름 통합 검색 필터 (추가 완료)
+    if (searchKeyword.trim() !== '') {
+      filtered = filtered.filter(s => s.name.includes(searchKeyword.trim()));
+    }
+
+    // 정렬 적용
     return filtered.sort((a, b) => {
       let aVal = a[sortConfig.key]; let bVal = b[sortConfig.key];
       if (sortConfig.key === 'classId') {
         aVal = classes.find(c => c.id === a.classId)?.name || ''; bVal = classes.find(c => c.id === b.classId)?.name || '';
       }
-      if (sortConfig.key === 'instructorId') { // 강사별 정렬 추가
+      if (sortConfig.key === 'instructorId') {
         const aInst = classes.find(c => c.id === a.classId)?.instructorId || '';
         const bInst = classes.find(c => c.id === b.classId)?.instructorId || '';
         aVal = instructors.find(i => i.id === aInst)?.name || '';
@@ -782,7 +792,7 @@ function MainApp({ role, user, setRole, teacherId }) {
     });
   };
 
-  // --- 결석/지각 자동 멘트 생성 (날짜만 단순 나열) ---
+  // --- 결석/지각 자동 멘트 생성 ---
   const getAutoAttendanceRemark = (studentId) => {
     let remarks = [];
     Object.entries(records).sort(([a], [b]) => a.localeCompare(b)).forEach(([d, recordObj]) => {
@@ -913,7 +923,7 @@ function MainApp({ role, user, setRole, teacherId }) {
         </div>
       )}
 
-      {/* --- 반 삭제 경고 모달 (학생 존재시) --- */}
+      {/* --- 반 삭제 경고 모달 --- */}
       {classDeleteWarning && !isReadOnly && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-[60]">
           <div className="bg-white p-6 rounded-xl shadow-2xl max-w-sm w-full mx-4">
@@ -929,7 +939,7 @@ function MainApp({ role, user, setRole, teacherId }) {
         </div>
       )}
 
-      {/* --- 반 삭제 확인 모달 (학생 0명) --- */}
+      {/* --- 반 삭제 확인 모달 --- */}
       {classToDelete && !isReadOnly && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-[60]">
           <div className="bg-white p-6 rounded-xl shadow-2xl max-w-sm w-full mx-4">
@@ -1036,32 +1046,32 @@ function MainApp({ role, user, setRole, teacherId }) {
                  </div>
                </div>
                <table className="w-full text-left border-collapse border border-gray-200">
-                  <thead><tr className="bg-gray-100 text-gray-700 text-sm border-b"><th className="p-3">강사명</th><th className="p-3">아이디</th><th className="p-3">비밀번호</th><th className="p-3 text-center">관리</th></tr></thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {instructors.map(inst => (
-                      <tr key={inst.id}>
-                        {editingInstId === inst.id ? (
-                          <>
-                            <td className="p-2"><input type="text" value={editInstData.name} onChange={e => setEditInstData({...editInstData, name: e.target.value})} className="border rounded p-1 w-full text-sm" /></td>
-                            <td className="p-3 text-gray-400 text-sm">{inst.username} (ID불변)</td>
-                            <td className="p-2"><input type="text" value={editInstData.password} onChange={e => setEditInstData({...editInstData, password: e.target.value})} className="border rounded p-1 w-full text-sm" /></td>
-                            <td className="p-2 text-center flex justify-center gap-2">
-                              <button onClick={saveEditedInst} className="text-green-600 hover:bg-green-100 p-1.5 rounded"><Check size={16} /></button>
-                              <button onClick={() => setEditingInstId(null)} className="text-gray-500 hover:bg-gray-200 p-1.5 rounded"><X size={16} /></button>
-                            </td>
-                          </>
-                        ) : (
-                          <>
-                            <td className="p-3 font-medium">{inst.name}</td><td className="p-3 text-gray-600">{inst.username}</td><td className="p-3 text-gray-600">{inst.password}</td>
-                            <td className="p-3 text-center flex justify-center gap-2">
-                              <button onClick={() => startEditingInst(inst)} className="text-blue-500 hover:bg-blue-50 p-1.5 rounded"><Edit2 size={16}/></button>
-                              <button onClick={() => handleDeleteInstructor(inst.id)} className="text-red-500 hover:bg-red-50 p-1.5 rounded"><Trash2 size={16}/></button>
-                            </td>
-                          </>
-                        )}
-                      </tr>
-                    ))}
-                  </tbody>
+                 <thead><tr className="bg-gray-100 text-gray-700 text-sm border-b"><th className="p-3">강사명</th><th className="p-3">아이디</th><th className="p-3">비밀번호</th><th className="p-3 text-center">관리</th></tr></thead>
+                 <tbody className="divide-y divide-gray-100">
+                   {instructors.map(inst => (
+                     <tr key={inst.id}>
+                       {editingInstId === inst.id ? (
+                         <>
+                           <td className="p-2"><input type="text" value={editInstData.name} onChange={e => setEditInstData({...editInstData, name: e.target.value})} className="border rounded p-1 w-full text-sm" /></td>
+                           <td className="p-3 text-gray-400 text-sm">{inst.username} (ID불변)</td>
+                           <td className="p-2"><input type="text" value={editInstData.password} onChange={e => setEditInstData({...editInstData, password: e.target.value})} className="border rounded p-1 w-full text-sm" /></td>
+                           <td className="p-2 text-center flex justify-center gap-2">
+                             <button onClick={saveEditedInst} className="text-green-600 hover:bg-green-100 p-1.5 rounded"><Check size={16} /></button>
+                             <button onClick={() => setEditingInstId(null)} className="text-gray-500 hover:bg-gray-200 p-1.5 rounded"><X size={16} /></button>
+                           </td>
+                         </>
+                       ) : (
+                         <>
+                           <td className="p-3 font-medium">{inst.name}</td><td className="p-3 text-gray-600">{inst.username}</td><td className="p-3 text-gray-600">{inst.password}</td>
+                           <td className="p-3 text-center flex justify-center gap-2">
+                             <button onClick={() => startEditingInst(inst)} className="text-blue-500 hover:bg-blue-50 p-1.5 rounded"><Edit2 size={16}/></button>
+                             <button onClick={() => handleDeleteInstructor(inst.id)} className="text-red-500 hover:bg-red-50 p-1.5 rounded"><Trash2 size={16}/></button>
+                           </td>
+                         </>
+                       )}
+                     </tr>
+                   ))}
+                 </tbody>
                </table>
              </div>
           )}
@@ -1150,7 +1160,7 @@ function MainApp({ role, user, setRole, teacherId }) {
             </div>
           )}
 
-          {/* 학생 관리 */}
+          {/* 학생 관리 (통합 검색 및 권한 필터 추가 적용) */}
           {activeTab === 'students' && (
             <div>
               {!isReadOnly && (
@@ -1164,16 +1174,37 @@ function MainApp({ role, user, setRole, teacherId }) {
                 </div>
               )}
               
-              {/* 관리자/행정팀용 강사 필터 드롭다운 */}
-              {(role === 'admin' || role === 'office') && (
-                <div className="mb-4 flex items-center gap-2 bg-white p-3 rounded-lg border border-gray-200 shadow-sm w-fit">
-                  <span className="text-sm font-bold text-gray-700">👨‍🏫 강사별 학생 보기:</span>
-                  <select value={filterInstructor} onChange={e => setFilterInstructor(e.target.value)} className="border border-gray-300 rounded p-1.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none">
-                    <option value="">전체 강사</option>
-                    {instructors.map(inst => <option key={inst.id} value={inst.id}>{inst.name} 선생님</option>)}
-                  </select>
+              {/* 관리자/행정팀용 강사 필터 드롭다운 및 통합 검색창 */}
+              <div className="mb-4 flex flex-col sm:flex-row gap-3">
+                {(role === 'admin' || role === 'office') && (
+                  <div className="flex items-center gap-2 bg-white p-2.5 rounded-lg border border-gray-200 shadow-sm w-fit">
+                    <span className="text-sm font-bold text-gray-700 ml-1">👨‍🏫 강사별 보기:</span>
+                    <select value={filterInstructor} onChange={e => setFilterInstructor(e.target.value)} className="border border-gray-300 rounded p-1 text-sm focus:ring-2 focus:ring-blue-500 outline-none">
+                      <option value="">전체 강사</option>
+                      {instructors.map(inst => <option key={inst.id} value={inst.id}>{inst.name} 선생님</option>)}
+                    </select>
+                  </div>
+                )}
+                
+                <div className="flex items-center gap-2 bg-white p-2.5 rounded-lg border border-gray-200 shadow-sm flex-1 max-w-sm">
+                  <span className="text-sm font-bold text-gray-700 ml-1">🔍 학생 검색:</span>
+                  <input 
+                    type="text" 
+                    value={searchKeyword} 
+                    onChange={e => setSearchKeyword(e.target.value)} 
+                    placeholder="이름을 입력하세요..." 
+                    className="border border-gray-300 rounded p-1 text-sm focus:ring-2 focus:ring-blue-500 outline-none flex-1"
+                  />
+                </div>
+              </div>
+
+              {/* 검색 결과가 0명일 때 나타나는 경고창 */}
+              {searchKeyword.trim() !== '' && getSortedStudentsForManagement().length === 0 && (
+                <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-center text-red-600 font-bold shadow-sm">
+                  입력하신 "{searchKeyword}" 학생은 존재하지 않거나 현재 담당 권한이 없습니다.
                 </div>
               )}
+
               <div className="overflow-x-auto rounded-lg border border-gray-200 shadow-sm">
                 <table className="w-full text-left border-collapse">
                   <thead>
@@ -1399,15 +1430,29 @@ function MainApp({ role, user, setRole, teacherId }) {
             </div>
           )}
 
-          {/* 주간 테스트 */}
+          {/* 주간 테스트 (강사 필터 및 네이밍 규칙 적용 완료) */}
           {activeTab === 'tests' && (
             <div>
-              <div className="flex flex-wrap gap-4 items-end mb-6 bg-purple-50 p-4 rounded-lg border border-purple-100">
+              <div className="flex flex-col sm:flex-row sm:items-end gap-4 mb-6 bg-purple-50 p-4 rounded-lg border border-purple-100">
+                {(role === 'admin' || role === 'office') && (
+                  <div className="w-full sm:w-48">
+                    <label className="block text-xs font-bold text-purple-900 mb-1">👨‍🏫 강사 선택</label>
+                    <select value={testInstructorId} onChange={e => { setTestInstructorId(e.target.value); setTestClassId(''); setSelectedIndivStudent(null); }} className="w-full border-2 border-purple-200 rounded-md p-2 focus:ring-2 focus:ring-purple-500 outline-none text-sm font-bold text-gray-700 bg-white">
+                      <option value="">전체 강사</option>
+                      {instructors.map(inst => <option key={inst.id} value={inst.id}>{inst.name} 선생님</option>)}
+                    </select>
+                  </div>
+                )}
                 <div className="flex-1 min-w-[200px] max-w-xs">
-                  <label className="block text-xs font-bold text-purple-800 mb-1">대상 반 선택</label>
-                  <select value={testClassId} onChange={e => { setTestClassId(e.target.value); setSelectedIndivStudent(null); }} className="w-full border border-purple-200 rounded-md p-2 focus:ring-2 focus:ring-purple-500 outline-none bg-white font-bold text-gray-700">
+                  <label className="block text-xs font-bold text-purple-800 mb-1">🏫 대상 반 선택</label>
+                  <select value={testClassId} onChange={e => { setTestClassId(e.target.value); setSelectedIndivStudent(null); }} className="w-full border border-purple-200 rounded-md p-2 focus:ring-2 focus:ring-purple-500 outline-none bg-white font-bold text-gray-700 text-sm">
                     <option value="">반을 선택해주세요...</option>
-                    {visibleClasses.map(c => <option key={c.id} value={c.id}>{c.name} ({c.type==='individual'?'개별':'판서'})</option>)}
+                    {visibleClasses
+                      .filter(c => (role === 'admin' || role === 'office') && testInstructorId ? c.instructorId === testInstructorId : true)
+                      .map(c => {
+                        const instName = instructors.find(i => i.id === c.instructorId)?.name || '미지정';
+                        return <option key={c.id} value={c.id}>{c.name} ({c.type==='individual'?'개별':'판서'}) {(role === 'admin' || role === 'office') ? `(${instName} T)` : ''}</option>
+                    })}
                   </select>
                 </div>
                 {visibleClasses.some(c => c.id === testClassId) && visibleClasses.find(c => c.id === testClassId)?.type !== 'individual' && !isReadOnly && (
@@ -1580,7 +1625,7 @@ function MainApp({ role, user, setRole, teacherId }) {
             </div>
           )}
 
-          {/* 주간 리포트 */}
+          {/* 주간 리포트 (강사 필터 및 네이밍 규칙 적용 완료) */}
           {activeTab === 'report' && (
             <div className="space-y-6 pointer-events-auto">
               <div className="bg-gradient-to-r from-blue-50 border border-blue-100 to-indigo-50 p-6 rounded-xl mb-8 shadow-sm">
@@ -1590,15 +1635,49 @@ function MainApp({ role, user, setRole, teacherId }) {
                     <p className="text-sm text-indigo-700">기본양식(오프라인)을 바탕으로 이번 주 누적 데이터를 취합합니다.</p>
                   </div>
                 </div>
-                <div className="flex flex-wrap gap-4 items-end bg-white p-4 rounded-lg border border-indigo-100">
+                <div className="flex flex-col sm:flex-row gap-4 items-end bg-white p-4 rounded-lg border border-indigo-100 mb-4">
                   <div><label className="block text-xs font-bold text-indigo-800 mb-1">시작일 (월)</label><input type="date" value={reportStartDate} onChange={(e) => setReportStartDate(e.target.value)} className="border border-gray-300 rounded-md p-2 focus:ring-2 focus:ring-indigo-500 outline-none font-medium" /></div>
                   <div><label className="block text-xs font-bold text-indigo-800 mb-1">종료일 (토)</label><input type="date" value={reportEndDate} onChange={(e) => setReportEndDate(e.target.value)} className="border border-gray-300 rounded-md p-2 focus:ring-2 focus:ring-indigo-500 outline-none font-medium" /></div>
-                  <div className="flex-1 min-w-[200px]"><label className="block text-xs font-bold text-indigo-800 mb-1">대상 반 선택</label>
-                    <select value={reportClassId} onChange={e => setReportClassId(e.target.value)} className="w-full border border-gray-300 rounded-md p-2 focus:ring-2 focus:ring-indigo-500 outline-none font-bold text-gray-800">
-                      <option value="">반을 선택하세요...</option>
-                      {visibleClasses.map(c => <option key={c.id} value={c.id}>{c.name} ({c.type==='individual'?'개별':'판서'})</option>)}
-                    </select>
-                  </div>
+                </div>
+                <div className="flex flex-col sm:flex-row gap-4 w-full max-w-3xl">
+                    {(role === 'admin' || role === 'office') && (
+                      <div className="w-full sm:w-48">
+                        <label className="block text-xs font-bold text-gray-500 mb-1">👨‍🏫 강사 선택</label>
+                        <select
+                          value={reportInstructorId}
+                          onChange={(e) => {
+                            setReportInstructorId(e.target.value);
+                            setReportClassId(''); // 강사 변경 시 반 선택 안전하게 초기화
+                          }}
+                          className="w-full border border-gray-300 rounded p-2 focus:ring-2 focus:ring-blue-500 outline-none text-sm font-bold text-gray-700 bg-white"
+                        >
+                          <option value="">전체 강사</option>
+                          {instructors.map(inst => (
+                            <option key={inst.id} value={inst.id}>{inst.name} 선생님</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+                    <div className="flex-1 w-full max-w-sm">
+                      <label className="block text-xs font-bold text-gray-500 mb-1">🏫 대상 반 선택</label>
+                      <select 
+                        value={reportClassId} 
+                        onChange={e => setReportClassId(e.target.value)} 
+                        className="w-full border border-gray-300 rounded p-2 focus:ring-2 focus:ring-blue-500 outline-none text-sm font-bold text-gray-700 bg-white"
+                      >
+                        <option value="">반을 선택해주세요...</option>
+                        {visibleClasses
+                          .filter(c => (role === 'admin' || role === 'office') && reportInstructorId ? c.instructorId === reportInstructorId : true)
+                          .map(c => {
+                            const instName = instructors.find(i => i.id === c.instructorId)?.name || '미지정';
+                            return (
+                              <option key={c.id} value={c.id}>
+                                {c.name} ({c.type==='individual'?'개별':'판서'}) {(role === 'admin' || role === 'office') ? `(${instName} T)` : ''}
+                              </option>
+                            );
+                        })}
+                      </select>
+                    </div>
                 </div>
                 
                 {reportClassId && visibleClasses.find(c => c.id === reportClassId)?.type !== 'individual' && (
@@ -1671,10 +1750,26 @@ function MainApp({ role, user, setRole, teacherId }) {
           {/* 설정 */}
           {activeTab === 'settings' && !isReadOnly && (
             <div className="max-w-3xl mx-auto space-y-6">
-              
-              {/* 관리자 전용 브라우저 탭 설정 */}
+
+              {/* --- 1. 모든 권한 개방: 전체 시스템 백업 (강사도 접근 가능) --- */}
+              <div className="bg-green-50 p-6 rounded-xl border border-green-200 shadow-sm mb-6">
+                <h3 className="text-lg font-bold text-green-900 mb-2 flex items-center gap-2"><Download size={20} /> 전체 시스템 데이터 백업</h3>
+                <p className="text-sm text-green-700 mb-4">학원의 모든 데이터(강사, 반, 학생, 성적 등)를 백업합니다. PC 다운로드 또는 구글 드라이브 저장을 선택하세요.</p>
+                <div className="flex flex-wrap gap-3">
+                  <button onClick={handleExportAllDataToJSON} className="bg-green-600 text-white px-4 py-2 rounded font-bold hover:bg-green-700 shadow-sm flex items-center gap-2 w-fit transition">
+                    <Download size={18} /> PC로 파일 다운로드
+                  </button>
+                  <button onClick={handleBackupToGoogleDrive} disabled={isDriveSyncing} className="bg-blue-600 text-white px-4 py-2 rounded font-bold hover:bg-blue-700 shadow-sm flex items-center gap-2 w-fit transition disabled:opacity-50">
+                    {isDriveSyncing ? <Loader2 size={18} className="animate-spin"/> : <Sparkles size={18} />}
+                    {isDriveSyncing ? '클라우드 전송 중...' : '구글 드라이브에 백업하기'}
+                  </button>
+                </div>
+              </div>
+
+              {/* --- 2. 관리자 전용 기능 묶음 (강사에게는 숨김 처리) --- */}
               {role === 'admin' && (
                 <>
+                  {/* 서버 데이터 강제 청소 */}
                   <div className="bg-red-50 p-6 rounded-xl border border-red-200 shadow-sm mb-6">
                     <h3 className="text-lg font-bold text-red-900 mb-2 flex items-center gap-2"><AlertCircle size={20} /> 서버 데이터베이스 강제 청소</h3>
                     <p className="text-sm text-red-700 mb-4">삭제해도 계속 부활하는 과거의 유령 테스트 데이터들을 서버에서 완전히 날려버립니다.</p>
@@ -1685,28 +1780,22 @@ function MainApp({ role, user, setRole, teacherId }) {
                       }
                     }} className="bg-red-600 text-white px-4 py-2 rounded font-bold hover:bg-red-700 shadow-sm">유령 테스트 데이터 영구 삭제</button>
                   </div>
-            {/* 데이터 백업 기능 블록 */}
-                  <div className="bg-green-50 p-6 rounded-xl border border-green-200 shadow-sm mb-6">
-                    <h3 className="text-lg font-bold text-green-900 mb-2 flex items-center gap-2"><Download size={20} /> 전체 시스템 데이터 백업</h3>
-                    <p className="text-sm text-green-700 mb-4">학원의 모든 데이터(강사, 반, 학생, 성적 등)를 백업합니다. PC 다운로드 또는 구글 드라이브 저장을 선택하세요.</p>
-                    <div className="flex flex-wrap gap-3">
-                      <button onClick={handleExportAllDataToJSON} className="bg-green-600 text-white px-4 py-2 rounded font-bold hover:bg-green-700 shadow-sm flex items-center gap-2 w-fit transition">
-                        <Download size={18} /> PC로 파일 다운로드
-                      </button>
-                      <button onClick={handleBackupToGoogleDrive} disabled={isDriveSyncing} className="bg-blue-600 text-white px-4 py-2 rounded font-bold hover:bg-blue-700 shadow-sm flex items-center gap-2 w-fit transition disabled:opacity-50">
-                        {isDriveSyncing ? <Loader2 size={18} className="animate-spin"/> : <Sparkles size={18} />}
-                        {isDriveSyncing ? '클라우드 전송 중...' : '구글 드라이브에 백업하기'}
-                      </button>
-                    </div>
-                  </div>            
-                <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
-                  <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2"><Eye size={20} className="text-blue-500" /> 시스템 외관 설정 (관리자 전용)</h3>
-                  <div className="flex flex-col gap-4">
-                    <div>
-                      <label className="block text-sm font-bold text-gray-700 mb-1">브라우저 탭 이름 (Title)</label>
-                      <input type="text" value={systemSettings?.title || ''} onChange={(e) => setSystemSettings(prev => ({...prev, title: e.target.value}))} placeholder="예: 임팩트 수학학원" className="w-full border border-gray-300 rounded p-2 focus:ring-2 focus:ring-blue-500 outline-none text-sm bg-gray-50" />
-                    </div>
-                    <div>
+
+                  {/* 시스템 외관 및 자동 백업 타이머 설정 */}
+                  <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                    <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2"><Eye size={20} className="text-blue-500" /> 시스템 외관 설정 (관리자 전용)</h3>
+                    <div className="flex flex-col gap-4">
+                      <div className="bg-blue-50 p-4 rounded-lg border border-blue-100 mb-2">
+                        <label className="block text-sm font-bold text-blue-900 mb-1 flex items-center gap-2">⏰ 클라우드 자동 백업 시간 설정</label>
+                        <p className="text-[11px] text-blue-700 mb-2">지정된 시간이 지나고 관리자 계정으로 접속 중일 때 백그라운드에서 구글 드라이브로 1회 자동 전송됩니다.</p>
+                        <input type="time" value={systemSettings?.autoBackupTime || ''} onChange={(e) => setSystemSettings(prev => ({...prev, autoBackupTime: e.target.value}))} className="w-40 border border-blue-300 rounded p-2 focus:ring-2 focus:ring-blue-500 outline-none text-sm bg-white font-bold" />
+                        <button onClick={() => setSystemSettings(prev => ({...prev, autoBackupTime: ''}))} className="ml-2 text-xs text-gray-500 underline hover:text-gray-700">시간 해제(자동백업 끄기)</button>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-bold text-gray-700 mb-1">브라우저 탭 이름 (Title)</label>
+                        <input type="text" value={systemSettings?.title || ''} onChange={(e) => setSystemSettings(prev => ({...prev, title: e.target.value}))} placeholder="예: 임팩트 수학학원" className="w-full border border-gray-300 rounded p-2 focus:ring-2 focus:ring-blue-500 outline-none text-sm bg-gray-50" />
+                      </div>
+                      <div>
                         <label className="block text-sm font-bold text-gray-700 mb-1">브라우저 아이콘 (Favicon URL)</label>
                         <p className="text-[10px] text-gray-500 mb-1">인터넷에 올려진 이미지 주소(http://...)를 입력하세요. (.png, .ico 권장)</p>
                         <input type="text" value={systemSettings?.iconUrl || ''} onChange={(e) => setSystemSettings(prev => ({...prev, iconUrl: e.target.value}))} placeholder="예: https://example.com/icon.png" className="w-full border border-gray-300 rounded p-2 focus:ring-2 focus:ring-blue-500 outline-none text-sm bg-gray-50" />
@@ -1716,6 +1805,7 @@ function MainApp({ role, user, setRole, teacherId }) {
                 </>
               )}
 
+              {/* --- 3. 리포트 기본 양식 템플릿 설정 --- */}
               <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
                 <h3 className="text-lg font-bold text-gray-900 mb-6 flex items-center gap-2"><Settings size={20} className="text-gray-500" /> 리포트 기본 양식 템플릿 설정</h3>
                 
@@ -1757,8 +1847,10 @@ function MainApp({ role, user, setRole, teacherId }) {
                   <input type="text" value={noTestMessage} onChange={(e) => setNoTestMessage(e.target.value)} className="w-full border border-gray-300 rounded-lg p-3 font-mono text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-gray-50" />
                 </div>
               </div>
+
             </div>
           )}
+          {/* 설정 탭 끝 */}
 
         </div>
       </div>
