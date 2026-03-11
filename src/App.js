@@ -5,7 +5,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Users, BookOpen, Calendar, Plus, Trash2, Edit2, Check, X, AlertCircle, Sparkles, Copy, Loader2, FileText, Download, Settings, ArrowUp, ArrowDown, ArrowUpDown, Eye, RefreshCcw, LogOut, Lock, UserCog, ClipboardList } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
-import { getFirestore, doc, setDoc, getDoc } from 'firebase/firestore';
+import { getFirestore, doc, setDoc, getDoc, onSnapshot } from 'firebase/firestore';
 
 // --- 1. Firebase 설정 ---
 const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
@@ -128,7 +128,6 @@ export default function App() {
     if (id === 'office' && pw === 'office') { setRole('office'); localStorage.setItem('userRole', 'office'); return; }
     
     try {
-      // 강사 로그인 시 강제로 즉시 인증 시도
       let currentUser = user || auth.currentUser;
       if (!currentUser) {
         const cred = await signInAnonymously(auth);
@@ -217,7 +216,7 @@ function MainApp({ role, user, handleLogout, teacherId }) {
 
   const showToast = (message, type = 'success') => { setToast({ message, type }); setTimeout(() => setToast(null), 3000); };
 
-  // 백업 복구 기능 추가
+  // --- 백업 복구 기능 ---
   const fileInputRef = useRef(null);
 
   const handleImportDataFromJSON = (event) => {
@@ -234,10 +233,8 @@ function MainApp({ role, user, handleLogout, teacherId }) {
       try {
         const importedData = JSON.parse(e.target.result);
         
-        // 1. Firebase DB 전체 덮어쓰기
         await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'academy', 'mainData'), importedData);
         
-        // 2. 화면의 State 즉시 업데이트 (강제 새로고침 시 발생하는 캐시 초기화 역전 버그 방지)
         if(importedData.instructors) setInstructors(importedData.instructors);
         if(importedData.classes) setClasses(importedData.classes);
         if(importedData.students) setStudents(importedData.students);
@@ -294,39 +291,67 @@ function MainApp({ role, user, handleLogout, teacherId }) {
     } catch (error) { showToast('네트워크 오류로 백업에 실패했습니다.', 'error'); } finally { setIsDriveSyncing(false); }
   };
 
+  // --- DB 실시간 동기화 (onSnapshot 구독 최적화 적용) ---
   useEffect(() => {
     let isMounted = true;
+    let unsubscribe = null;
     let fallbackTimer = setTimeout(() => { if(isMounted) setIsLoaded(true); }, 5000);
 
     const fetchDb = async () => {
-      if (!user) return;
+      if (!user) {
+        if (isMounted) setIsLoaded(true);
+        clearTimeout(fallbackTimer);
+        return;
+      }
       try {
         const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'academy', 'mainData');
-        const docSnap = await getDoc(docRef);
-        if (!isMounted) return;
-        if (docSnap.exists()) {
-          const d = docSnap.data();
-          if(d.instructors) setInstructors(d.instructors);
-          if(d.classes) setClasses(d.classes);
-          if(d.students) setStudents(d.students);
-          if(d.records) setRecords(d.records);
-          if(d.testRecords) setTestRecords(d.testRecords);
-          if(d.individualTestRecords) setIndividualTestRecords(d.individualTestRecords);
-          if(d.classWeeklyProgress) setClassWeeklyProgress(d.classWeeklyProgress);
-          if(d.individualWeeklyProgress) setIndividualWeeklyProgress(d.individualWeeklyProgress);
-          if(d.reportRemarks) setReportRemarks(d.reportRemarks);
-          if(d.excludeFromReport) setExcludeFromReport(d.excludeFromReport);
-          if(d.offlineTemplate) setOfflineTemplate(d.offlineTemplate);
-          if(d.testItemTemplate) setTestItemTemplate(d.testItemTemplate);
-          if(d.noTestMessage) setNoTestMessage(d.noTestMessage);
-        }
-        setIsLoaded(true); clearTimeout(fallbackTimer);
+        
+        unsubscribe = onSnapshot(docRef, (docSnap) => {
+          if (!isMounted) return;
+          if (docSnap.exists()) {
+            const d = docSnap.data();
+            
+            // 깊은 비교로 상태가 변경되었을 때만 업데이트 (무한 루프 원천 차단)
+            const updateIfChanged = (setter, newVal) => {
+              if (newVal !== undefined) setter(prev => JSON.stringify(prev) === JSON.stringify(newVal) ? prev : newVal);
+            };
+
+            updateIfChanged(setInstructors, d.instructors);
+            updateIfChanged(setClasses, d.classes);
+            updateIfChanged(setStudents, d.students);
+            updateIfChanged(setRecords, d.records);
+            updateIfChanged(setTestRecords, d.testRecords);
+            updateIfChanged(setIndividualTestRecords, d.individualTestRecords);
+            updateIfChanged(setClassWeeklyProgress, d.classWeeklyProgress);
+            updateIfChanged(setIndividualWeeklyProgress, d.individualWeeklyProgress);
+            updateIfChanged(setReportRemarks, d.reportRemarks);
+            updateIfChanged(setExcludeFromReport, d.excludeFromReport);
+            updateIfChanged(setOfflineTemplate, d.offlineTemplate);
+            updateIfChanged(setTestItemTemplate, d.testItemTemplate);
+            updateIfChanged(setNoTestMessage, d.noTestMessage);
+            updateIfChanged(setSystemSettings, d.systemSettings);
+          }
+          setIsLoaded(true);
+          clearTimeout(fallbackTimer);
+        }, (error) => {
+          console.error("onSnapshot Error:", error);
+          if (isMounted) setIsLoaded(true);
+          clearTimeout(fallbackTimer);
+        });
       } catch (e) {
-        if (isMounted) setIsLoaded(true); clearTimeout(fallbackTimer);
+        if (isMounted) setIsLoaded(true);
+        clearTimeout(fallbackTimer);
       }
     };
+    
     fetchDb();
-    return () => { isMounted = false; clearTimeout(fallbackTimer); };
+    
+    // 컴포넌트 언마운트 시 구독 해제하여 읽기 연산 비용 절약
+    return () => { 
+      isMounted = false; 
+      clearTimeout(fallbackTimer);
+      if (unsubscribe) unsubscribe(); 
+    };
   }, [user]); 
 
   const syncData = (key, value) => {
@@ -347,6 +372,7 @@ function MainApp({ role, user, handleLogout, teacherId }) {
   useEffect(() => { if(isLoaded) syncData('offlineTemplate', offlineTemplate); }, [offlineTemplate, isLoaded]);
   useEffect(() => { if(isLoaded) syncData('testItemTemplate', testItemTemplate); }, [testItemTemplate, isLoaded]);
   useEffect(() => { if(isLoaded) syncData('noTestMessage', noTestMessage); }, [noTestMessage, isLoaded]);
+  useEffect(() => { if(isLoaded) syncData('systemSettings', systemSettings); }, [systemSettings, isLoaded]);
 
   const visibleClasses = role === 'teacher' ? classes.filter(c => c.instructorId === teacherId) : classes;
   const visibleStudents = role === 'teacher' ? students.filter(s => visibleClasses.some(c => c.id === s.classId)) : students;
@@ -1087,7 +1113,7 @@ function MainApp({ role, user, handleLogout, teacherId }) {
                                   <tr key={student.id} className="border-b border-gray-100 hover:bg-gray-50">
                                     <td className="p-3 border-r font-medium whitespace-nowrap sticky left-0 bg-white group-hover:bg-gray-50 z-10">{student.name}</td>
                                     {weekDates.map(d => {
-                                      const record = records[d]?.[student.id] || { progress: 0, remark: '' };
+                                      const record = records[d]?.[student.id] || { progress: 100, remark: '' };
                                       return (
                                         <td key={d} className="p-3 border-r text-left align-top">
                                           <div className="flex flex-col gap-2">
