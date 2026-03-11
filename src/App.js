@@ -215,6 +215,9 @@ function MainApp({ role, user, setRole, teacherId }) {
   // 시스템 제목/아이콘 및 강사 필터 상태 추가
   const [systemSettings, setSystemSettings] = useState(() => loadData('systemSettings', { title: '임팩트 수학학원', iconUrl: '' }));
   const [filterInstructor, setFilterInstructor] = useState('');
+  const [searchKeyword, setSearchKeyword] = useState(''); // 학생 이름 통합 검색용 (한 번만 선언)
+  const [reportInstructorId, setReportInstructorId] = useState(''); // 주간 리포트 강사 필터용
+  const [testInstructorId, setTestInstructorId] = useState('');     // 주간 테스트 강사 필터용
 
   const [offlineTemplate, setOfflineTemplate] = useState(DEFAULT_TEMPLATE);
   const [testItemTemplate, setTestItemTemplate] = useState(DEFAULT_TEST_ITEM_TEMPLATE);
@@ -444,13 +447,12 @@ function MainApp({ role, user, setRole, teacherId }) {
   };
 
   const handleDeleteInstructor = (id) => {
-    if (classes.some(c => c.instructorId === id)) {
-      showToast('이 강사에게 배정된 반이 있습니다. 반을 먼저 변경/삭제하세요.', 'error');
-      return;
-    }
-    if (window.confirm('정말 이 강사 계정을 삭제하시겠습니까?')) {
+    if (window.confirm('정말 이 강사 계정을 삭제하시겠습니까?\n(이 강사에게 배정되었던 반들은 자동으로 "미지정" 상태가 됩니다.)')) {
+      // 1. 강사 계정 영구 삭제
       setInstructors(instructors.filter(i => i.id !== id));
-      showToast('강사 계정이 삭제되었습니다.', 'success');
+      // 2. 해당 강사가 맡고 있던 반들을 추적하여 강사(instructorId)를 빈칸('')으로 연쇄 초기화
+      setClasses(classes.map(c => c.instructorId === id ? { ...c, instructorId: '' } : c));
+      showToast('강사가 삭제되었으며, 관련 반은 미지정 처리되었습니다.', 'success');
     }
   };
 
@@ -546,13 +548,20 @@ function MainApp({ role, user, setRole, teacherId }) {
   };
 
   const getSortedStudentsForManagement = () => {
-    // 1. 강사 필터 적용 (관리자/행정팀 전용)
+    // 1차: 권한별 분리는 visibleStudents에 이미 적용되어 있음 (관리자는 전체, 강사는 본인 반만)
     let filtered = [...visibleStudents];
+    
+    // 2차: 강사 선택 필터 (관리자/행정팀 전용)
     if ((role === 'admin' || role === 'office') && filterInstructor) {
       filtered = filtered.filter(s => {
         const cls = classes.find(c => c.id === s.classId);
         return cls && cls.instructorId === filterInstructor;
       });
+    }
+
+    // 3차: 학생 이름 검색어 필터 (새로 추가된 안전한 로직)
+    if (searchKeyword.trim() !== '') {
+      filtered = filtered.filter(s => s.name.includes(searchKeyword.trim()));
     }
     // 2. 정렬 적용
     return filtered.sort((a, b) => {
@@ -1166,14 +1175,35 @@ function MainApp({ role, user, setRole, teacherId }) {
               
               {/* 관리자/행정팀용 강사 필터 드롭다운 */}
               {(role === 'admin' || role === 'office') && (
-                <div className="mb-4 flex items-center gap-2 bg-white p-3 rounded-lg border border-gray-200 shadow-sm w-fit">
-                  <span className="text-sm font-bold text-gray-700">👨‍🏫 강사별 학생 보기:</span>
-                  <select value={filterInstructor} onChange={e => setFilterInstructor(e.target.value)} className="border border-gray-300 rounded p-1.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none">
-                    <option value="">전체 강사</option>
-                    {instructors.map(inst => <option key={inst.id} value={inst.id}>{inst.name} 선생님</option>)}
-                  </select>
-                </div>
-              )}
+                    <div className="mb-4 flex items-center gap-2 bg-white p-3 rounded-lg border border-gray-200 shadow-sm w-fit">
+                      <span className="text-sm font-bold text-gray-700">👨‍🏫 강사별 학생 보기:</span>
+                      <select value={filterInstructor} onChange={e => setFilterInstructor(e.target.value)} className="border border-gray-300 rounded p-1.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none">
+                        <option value="">전체 강사</option>
+                        {instructors.map(inst => <option key={inst.id} value={inst.id}>{inst.name} 선생님</option>)}
+                      </select>
+                    </div>
+                  )}
+
+                  {/* ★ 새로 추가할 부분: 검색바 및 경고창 ★ */}
+                  <div className="mb-4 flex items-center gap-2 bg-white p-3 rounded-lg border border-gray-200 shadow-sm w-full max-w-sm">
+                    <span className="text-sm font-bold text-gray-700">🔍 학생 검색:</span>
+                    <input 
+                      type="text" 
+                      value={searchKeyword} 
+                      onChange={e => setSearchKeyword(e.target.value)} 
+                      placeholder="이름 검색..." 
+                      className="border border-gray-300 rounded p-1.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none flex-1"
+                    />
+                  </div>
+                  
+                  {/* 검색 결과가 0명일 때 나타나는 경고창 */}
+                  {searchKeyword.trim() !== '' && getSortedStudentsForManagement().length === 0 && (
+                    <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-center text-red-600 font-bold shadow-sm">
+                      입력하신 "{searchKeyword}" 학생은 존재하지 않거나 현재 담당 권한이 없습니다.
+                    </div>
+                  )}
+                  {/* ★ 여기까지 추가 완료 ★ */}
+
               <div className="overflow-x-auto rounded-lg border border-gray-200 shadow-sm">
                 <table className="w-full text-left border-collapse">
                   <thead>
@@ -1402,12 +1432,45 @@ function MainApp({ role, user, setRole, teacherId }) {
           {/* 주간 테스트 */}
           {activeTab === 'tests' && (
             <div>
-              <div className="flex flex-wrap gap-4 items-end mb-6 bg-purple-50 p-4 rounded-lg border border-purple-100">
-                <div className="flex-1 min-w-[200px] max-w-xs">
-                  <label className="block text-xs font-bold text-purple-800 mb-1">대상 반 선택</label>
-                  <select value={testClassId} onChange={e => { setTestClassId(e.target.value); setSelectedIndivStudent(null); }} className="w-full border border-purple-200 rounded-md p-2 focus:ring-2 focus:ring-purple-500 outline-none bg-white font-bold text-gray-700">
+              {/* 관리자/행정팀용 강사 필터 */}
+                {(role === 'admin' || role === 'office') && (
+                  <div className="w-full sm:w-48">
+                    <label className="block text-xs font-bold text-purple-900 mb-1">👨‍🏫 강사 선택</label>
+                    <select
+                      value={testInstructorId}
+                      onChange={(e) => {
+                        setTestInstructorId(e.target.value);
+                        setTestClassId(''); // 강사 변경 시 반 선택 안전하게 초기화
+                      }}
+                      className="w-full border-2 border-purple-200 rounded-md p-2 focus:ring-2 focus:ring-purple-500 outline-none text-sm font-bold text-purple-800 bg-white"
+                    >
+                      <option value="">전체 강사</option>
+                      {instructors.map(inst => (
+                        <option key={inst.id} value={inst.id}>{inst.name} 선생님</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                {/* 대상 반 선택 (강사 이름 T 자동 추가) */}
+                <div className="flex-1 w-full max-w-sm">
+                  <label className="block text-xs font-bold text-purple-900 mb-1">🏫 대상 반 선택</label>
+                  <select 
+                    value={testClassId} 
+                    onChange={e => setTestClassId(e.target.value)} 
+                    className="w-full border-2 border-purple-200 rounded-md p-2 focus:ring-2 focus:ring-purple-500 outline-none text-sm font-bold text-purple-800 bg-white"
+                  >
                     <option value="">반을 선택해주세요...</option>
-                    {visibleClasses.map(c => <option key={c.id} value={c.id}>{c.name} ({c.type==='individual'?'개별':'판서'})</option>)}
+                    {visibleClasses
+                      .filter(c => (role === 'admin' || role === 'office') && testInstructorId ? c.instructorId === testInstructorId : true)
+                      .map(c => {
+                        const instName = instructors.find(i => i.id === c.instructorId)?.name || '미지정';
+                        return (
+                          <option key={c.id} value={c.id}>
+                            {c.name} {(role === 'admin' || role === 'office') ? `(${instName} T)` : ''}
+                          </option>
+                        );
+                    })}
                   </select>
                 </div>
                 {visibleClasses.some(c => c.id === testClassId) && visibleClasses.find(c => c.id === testClassId)?.type !== 'individual' && !isReadOnly && (
@@ -1590,14 +1653,48 @@ function MainApp({ role, user, setRole, teacherId }) {
                     <p className="text-sm text-indigo-700">기본양식(오프라인)을 바탕으로 이번 주 누적 데이터를 취합합니다.</p>
                   </div>
                 </div>
-                <div className="flex flex-wrap gap-4 items-end bg-white p-4 rounded-lg border border-indigo-100">
-                  <div><label className="block text-xs font-bold text-indigo-800 mb-1">시작일 (월)</label><input type="date" value={reportStartDate} onChange={(e) => setReportStartDate(e.target.value)} className="border border-gray-300 rounded-md p-2 focus:ring-2 focus:ring-indigo-500 outline-none font-medium" /></div>
-                  <div><label className="block text-xs font-bold text-indigo-800 mb-1">종료일 (토)</label><input type="date" value={reportEndDate} onChange={(e) => setReportEndDate(e.target.value)} className="border border-gray-300 rounded-md p-2 focus:ring-2 focus:ring-indigo-500 outline-none font-medium" /></div>
-                  <div className="flex-1 min-w-[200px]"><label className="block text-xs font-bold text-indigo-800 mb-1">대상 반 선택</label>
-                    <select value={reportClassId} onChange={e => setReportClassId(e.target.value)} className="w-full border border-gray-300 rounded-md p-2 focus:ring-2 focus:ring-indigo-500 outline-none font-bold text-gray-800">
-                      <option value="">반을 선택하세요...</option>
-                      {visibleClasses.map(c => <option key={c.id} value={c.id}>{c.name} ({c.type==='individual'?'개별':'판서'})</option>)}
-                    </select>
+                <div className="flex flex-col sm:flex-row gap-4 w-full max-w-3xl">
+                    {/* 관리자/행정팀용 강사 필터 */}
+                    {(role === 'admin' || role === 'office') && (
+                      <div className="w-full sm:w-48">
+                        <label className="block text-xs font-bold text-gray-500 mb-1">👨‍🏫 강사 선택</label>
+                        <select
+                          value={reportInstructorId}
+                          onChange={(e) => {
+                            setReportInstructorId(e.target.value);
+                            setReportClassId(''); // 강사 변경 시 반 선택 안전하게 초기화
+                          }}
+                          className="w-full border border-gray-300 rounded p-2 focus:ring-2 focus:ring-blue-500 outline-none text-sm font-bold text-gray-700 bg-white"
+                        >
+                          <option value="">전체 강사</option>
+                          {instructors.map(inst => (
+                            <option key={inst.id} value={inst.id}>{inst.name} 선생님</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+
+                    {/* 대상 반 선택 (강사 이름 T 자동 추가) */}
+                    <div className="flex-1 w-full max-w-sm">
+                      <label className="block text-xs font-bold text-gray-500 mb-1">🏫 대상 반 선택</label>
+                      <select 
+                        value={reportClassId} 
+                        onChange={e => setReportClassId(e.target.value)} 
+                        className="w-full border border-gray-300 rounded p-2 focus:ring-2 focus:ring-blue-500 outline-none text-sm font-bold text-gray-700 bg-white"
+                      >
+                        <option value="">반을 선택해주세요...</option>
+                        {visibleClasses
+                          .filter(c => (role === 'admin' || role === 'office') && reportInstructorId ? c.instructorId === reportInstructorId : true)
+                          .map(c => {
+                            const instName = instructors.find(i => i.id === c.instructorId)?.name || '미지정';
+                            return (
+                              <option key={c.id} value={c.id}>
+                                {c.name} {(role === 'admin' || role === 'office') ? `(${instName} T)` : ''}
+                              </option>
+                            );
+                        })}
+                      </select>
+                    </div>
                   </div>
                 </div>
                 
@@ -1672,20 +1769,7 @@ function MainApp({ role, user, setRole, teacherId }) {
           {activeTab === 'settings' && !isReadOnly && (
             <div className="max-w-3xl mx-auto space-y-6">
               
-              {/* 관리자 전용 브라우저 탭 설정 */}
-              {role === 'admin' && (
-                <>
-                  <div className="bg-red-50 p-6 rounded-xl border border-red-200 shadow-sm mb-6">
-                    <h3 className="text-lg font-bold text-red-900 mb-2 flex items-center gap-2"><AlertCircle size={20} /> 서버 데이터베이스 강제 청소</h3>
-                    <p className="text-sm text-red-700 mb-4">삭제해도 계속 부활하는 과거의 유령 테스트 데이터들을 서버에서 완전히 날려버립니다.</p>
-                    <button onClick={async () => {
-                      if(window.confirm('정말 테스트 데이터를 완전히 초기화하시겠습니까? (현재 입력된 테스트도 모두 백지화됩니다)')) {
-                        setTestRecords({}); setIndividualTestRecords({});
-                        try { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'academy', 'mainData'), { testRecords: {}, individualTestRecords: {} }); alert('청소 완료! 새로고침을 진행해주세요.'); window.location.reload(); } catch(e) { alert('청소 실패: DB 접근 권한을 확인하세요.'); }
-                      }
-                    }} className="bg-red-600 text-white px-4 py-2 rounded font-bold hover:bg-red-700 shadow-sm">유령 테스트 데이터 영구 삭제</button>
-                  </div>
-            {/* 데이터 백업 기능 블록 */}
+                  {/* 데이터 백업 기능 블록 */}
                   <div className="bg-green-50 p-6 rounded-xl border border-green-200 shadow-sm mb-6">
                     <h3 className="text-lg font-bold text-green-900 mb-2 flex items-center gap-2"><Download size={20} /> 전체 시스템 데이터 백업</h3>
                     <p className="text-sm text-green-700 mb-4">학원의 모든 데이터(강사, 반, 학생, 성적 등)를 백업합니다. PC 다운로드 또는 구글 드라이브 저장을 선택하세요.</p>
@@ -1699,6 +1783,20 @@ function MainApp({ role, user, setRole, teacherId }) {
                       </button>
                     </div>
                   </div>            
+              {/* 관리자 전용 브라우저 탭 설정 */}
+              {role === 'admin' && (
+                <>
+                  <div className="bg-red-50 p-6 rounded-xl border border-red-200 shadow-sm mb-6">
+                    <h3 className="text-lg font-bold text-red-900 mb-2 flex items-center gap-2"><AlertCircle size={20} /> 서버 데이터베이스 강제 청소</h3>
+                    <p className="text-sm text-red-700 mb-4">삭제해도 계속 부활하는 과거의 유령 테스트 데이터들을 서버에서 완전히 날려버립니다.</p>
+                    <button onClick={async () => {
+                      if(window.confirm('정말 테스트 데이터를 완전히 초기화하시겠습니까? (현재 입력된 테스트도 모두 백지화됩니다)')) {
+                        setTestRecords({}); setIndividualTestRecords({});
+                        try { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'academy', 'mainData'), { testRecords: {}, individualTestRecords: {} }); alert('청소 완료! 새로고침을 진행해주세요.'); window.location.reload(); } catch(e) { alert('청소 실패: DB 접근 권한을 확인하세요.'); }
+                      }
+                    }} className="bg-red-600 text-white px-4 py-2 rounded font-bold hover:bg-red-700 shadow-sm">유령 테스트 데이터 영구 삭제</button>
+                  </div>
+            
                 <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
                   <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2"><Eye size={20} className="text-blue-500" /> 시스템 외관 설정 (관리자 전용)</h3>
                   <div className="flex flex-col gap-4">
