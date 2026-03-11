@@ -128,7 +128,13 @@ export default function App() {
     if (id === 'office' && pw === 'office') { setRole('office'); localStorage.setItem('userRole', 'office'); return; }
     
     try {
-      if (!user) { setLoginError('인증 서버 연결 중입니다. 잠시 후 다시 시도해주세요.'); return; }
+      // 강사 로그인 시 강제로 즉시 인증 시도
+      let currentUser = user || auth.currentUser;
+      if (!currentUser) {
+        const cred = await signInAnonymously(auth);
+        currentUser = cred.user;
+      }
+      
       const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'academy', 'mainData');
       const docSnap = await getDoc(docRef);
       if (docSnap.exists()) {
@@ -211,7 +217,7 @@ function MainApp({ role, user, handleLogout, teacherId }) {
 
   const showToast = (message, type = 'success') => { setToast({ message, type }); setTimeout(() => setToast(null), 3000); };
 
-  // --- 백업 복구 기능 추가 ---
+  // 백업 복구 기능 추가
   const fileInputRef = useRef(null);
 
   const handleImportDataFromJSON = (event) => {
@@ -227,13 +233,8 @@ function MainApp({ role, user, handleLogout, teacherId }) {
     reader.onload = async (e) => {
       try {
         const importedData = JSON.parse(e.target.result);
-        
-        // React State 꼬임 방지를 위해 Firebase에 즉시 덮어쓰기
         await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'academy', 'mainData'), importedData);
-        
         showToast('데이터 복구가 완료되었습니다. 시스템을 재시작합니다.', 'success');
-        
-        // 1.5초 뒤 강제 새로고침하여 깨끗하게 백업 데이터 로드
         setTimeout(() => window.location.reload(), 1500);
       } catch (error) {
         showToast('파일 형식이 올바르지 않거나 손상되었습니다.', 'error');
@@ -243,7 +244,6 @@ function MainApp({ role, user, handleLogout, teacherId }) {
     };
     reader.readAsText(file);
   };
-  // -------------------------
 
   const restoreDefaultTemplates = () => {
     setOfflineTemplate(DEFAULT_TEMPLATE);
@@ -343,7 +343,6 @@ function MainApp({ role, user, handleLogout, teacherId }) {
     setNewInstName(''); setNewInstId(''); setNewInstPw(''); showToast('신규 강사가 생성되었습니다.');
   };
 
-  // ★ 복구된 기능 1: 강사 삭제 시 반 자동 미지정 처리
   const handleDeleteInstructor = (id) => {
     if (window.confirm('정말 이 강사 계정을 삭제하시겠습니까?\n(이 강사에게 배정되었던 반들은 자동으로 "미지정" 상태가 됩니다.)')) {
       setInstructors(instructors.filter(i => i.id !== id));
@@ -689,8 +688,6 @@ function MainApp({ role, user, handleLogout, teacherId }) {
     return sortConfig.direction === 'asc' ? <ArrowUp size={14} className="text-blue-600" /> : <ArrowDown size={14} className="text-blue-600" />;
   };
 
-  if (!isLoaded) return <div className="min-h-screen flex items-center justify-center"><Loader2 className="animate-spin text-blue-500" size={32}/></div>;
-
   return (
     <div className={`min-h-screen p-4 md:p-8 font-sans relative ${isReadOnly ? 'bg-emerald-50' : 'bg-gray-50'}`}>
       <style>{`input[type="number"]::-webkit-outer-spin-button, input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; } input[type="number"] { -moz-appearance: textfield; }`}</style>
@@ -742,8 +739,13 @@ function MainApp({ role, user, handleLogout, teacherId }) {
       )}
 
       <div className="max-w-7xl mx-auto">
-        <header className="mb-6 flex justify-between items-center">
-          <div className="flex flex-col"><h1 className="text-2xl font-bold flex items-center gap-2"><BookOpen className="text-blue-600"/> 임팩트수학 통합관리</h1></div>
+        <header className="mb-6 flex flex-col md:flex-row md:justify-between md:items-center gap-4">
+          <div className="flex flex-col">
+            <h1 className="text-2xl font-bold flex items-center gap-2">
+              <BookOpen className="text-blue-600"/> 임팩트수학 통합관리
+              {!isLoaded && <span className="text-xs font-bold text-orange-500 flex items-center gap-1 ml-2 bg-orange-50 px-2 py-1 rounded-md border border-orange-200"><Loader2 size={12} className="animate-spin"/> 동기화 중...</span>}
+            </h1>
+          </div>
           <div className="flex items-center gap-4 bg-white px-4 py-2 rounded-lg shadow-sm border border-gray-200">
             <div className="text-sm"><span className="font-bold text-gray-800">{role === 'admin' ? '👑 관리자' : role === 'teacher' ? '👨‍🏫 강사' : '🏢 행정팀'}</span> 계정 접속중</div>
             <div className="w-px h-4 bg-gray-300"></div>
@@ -1067,7 +1069,7 @@ function MainApp({ role, user, handleLogout, teacherId }) {
                                   <tr key={student.id} className="border-b border-gray-100 hover:bg-gray-50">
                                     <td className="p-3 border-r font-medium whitespace-nowrap sticky left-0 bg-white group-hover:bg-gray-50 z-10">{student.name}</td>
                                     {weekDates.map(d => {
-                                      const record = records[d]?.[student.id] || { progress: 100, remark: '' };
+                                      const record = records[d]?.[student.id] || { progress: 0, remark: '' };
                                       return (
                                         <td key={d} className="p-3 border-r text-left align-top">
                                           <div className="flex flex-col gap-2">
@@ -1411,12 +1413,11 @@ function MainApp({ role, user, handleLogout, teacherId }) {
                     <Download size={18} /> PC로 파일 다운로드
                   </button>
                   
-                  {/* --- 백업 파일 불러오기 버튼 추가 --- */}
+                  {/* 백업 파일 불러오기 버튼 추가 */}
                   <input type="file" accept=".json" ref={fileInputRef} onChange={handleImportDataFromJSON} className="hidden" />
                   <button onClick={() => fileInputRef.current?.click()} className="bg-orange-600 text-white px-4 py-2 rounded font-bold hover:bg-orange-700 shadow-sm flex items-center gap-2 w-fit transition">
                     <RefreshCcw size={18} /> PC에서 백업 복구하기
                   </button>
-                  {/* ------------------------------- */}
 
                   <button onClick={handleBackupToGoogleDrive} disabled={isDriveSyncing} className="bg-blue-600 text-white px-4 py-2 rounded font-bold hover:bg-blue-700 shadow-sm flex items-center gap-2 w-fit transition disabled:opacity-50">
                     {isDriveSyncing ? <Loader2 size={18} className="animate-spin"/> : <Sparkles size={18} />}
