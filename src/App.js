@@ -233,9 +233,27 @@ function MainApp({ role, user, handleLogout, teacherId }) {
     reader.onload = async (e) => {
       try {
         const importedData = JSON.parse(e.target.result);
+        
+        // 1. Firebase DB 전체 덮어쓰기
         await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'academy', 'mainData'), importedData);
-        showToast('데이터 복구가 완료되었습니다. 시스템을 재시작합니다.', 'success');
-        setTimeout(() => window.location.reload(), 1500);
+        
+        // 2. 화면의 State 즉시 업데이트 (강제 새로고침 시 발생하는 캐시 초기화 역전 버그 방지)
+        if(importedData.instructors) setInstructors(importedData.instructors);
+        if(importedData.classes) setClasses(importedData.classes);
+        if(importedData.students) setStudents(importedData.students);
+        if(importedData.records) setRecords(importedData.records);
+        if(importedData.testRecords) setTestRecords(importedData.testRecords);
+        if(importedData.individualTestRecords) setIndividualTestRecords(importedData.individualTestRecords);
+        if(importedData.classWeeklyProgress) setClassWeeklyProgress(importedData.classWeeklyProgress);
+        if(importedData.individualWeeklyProgress) setIndividualWeeklyProgress(importedData.individualWeeklyProgress);
+        if(importedData.reportRemarks) setReportRemarks(importedData.reportRemarks);
+        if(importedData.excludeFromReport) setExcludeFromReport(importedData.excludeFromReport);
+        if(importedData.offlineTemplate) setOfflineTemplate(importedData.offlineTemplate);
+        if(importedData.testItemTemplate) setTestItemTemplate(importedData.testItemTemplate);
+        if(importedData.noTestMessage) setNoTestMessage(importedData.noTestMessage);
+        if(importedData.systemSettings) setSystemSettings(importedData.systemSettings);
+        
+        showToast('데이터 복구가 성공적으로 완료되었습니다.', 'success');
       } catch (error) {
         showToast('파일 형식이 올바르지 않거나 손상되었습니다.', 'error');
         console.error(error);
