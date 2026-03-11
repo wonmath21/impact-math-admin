@@ -5,6 +5,7 @@ import { Users, BookOpen, Calendar, Plus, Trash2, Edit2, Check, X, AlertCircle, 
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
 import { getFirestore, doc, setDoc, getDoc, updateDoc } from 'firebase/firestore';
+import SettingsTab from './components/SettingsTab'; // <--- 이 줄을 추가합니다.
 
 // --- 1. Firebase 설정 ---
 let firebaseConfig;
