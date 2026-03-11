@@ -215,9 +215,6 @@ function MainApp({ role, user, setRole, teacherId }) {
   // 시스템 제목/아이콘 및 강사 필터 상태 추가
   const [systemSettings, setSystemSettings] = useState(() => loadData('systemSettings', { title: '임팩트 수학학원', iconUrl: '' }));
   const [filterInstructor, setFilterInstructor] = useState('');
-  const [searchKeyword, setSearchKeyword] = useState(''); // 학생 이름 통합 검색용 (한 번만 선언)
-  const [reportInstructorId, setReportInstructorId] = useState(''); // 주간 리포트 강사 필터용
-  const [testInstructorId, setTestInstructorId] = useState('');     // 주간 테스트 강사 필터용
 
   const [offlineTemplate, setOfflineTemplate] = useState(DEFAULT_TEMPLATE);
   const [testItemTemplate, setTestItemTemplate] = useState(DEFAULT_TEST_ITEM_TEMPLATE);
@@ -447,12 +444,13 @@ function MainApp({ role, user, setRole, teacherId }) {
   };
 
   const handleDeleteInstructor = (id) => {
-    if (window.confirm('정말 이 강사 계정을 삭제하시겠습니까?\n(이 강사에게 배정되었던 반들은 자동으로 "미지정" 상태가 됩니다.)')) {
-      // 1. 강사 계정 영구 삭제
+    if (classes.some(c => c.instructorId === id)) {
+      showToast('이 강사에게 배정된 반이 있습니다. 반을 먼저 변경/삭제하세요.', 'error');
+      return;
+    }
+    if (window.confirm('정말 이 강사 계정을 삭제하시겠습니까?')) {
       setInstructors(instructors.filter(i => i.id !== id));
-      // 2. 해당 강사가 맡고 있던 반들을 추적하여 강사(instructorId)를 빈칸('')으로 연쇄 초기화
-      setClasses(classes.map(c => c.instructorId === id ? { ...c, instructorId: '' } : c));
-      showToast('강사가 삭제되었으며, 관련 반은 미지정 처리되었습니다.', 'success');
+      showToast('강사 계정이 삭제되었습니다.', 'success');
     }
   };
 
@@ -548,20 +546,13 @@ function MainApp({ role, user, setRole, teacherId }) {
   };
 
   const getSortedStudentsForManagement = () => {
-    // 1차: 권한별 분리는 visibleStudents에 이미 적용되어 있음 (관리자는 전체, 강사는 본인 반만)
+    // 1. 강사 필터 적용 (관리자/행정팀 전용)
     let filtered = [...visibleStudents];
-    
-    // 2차: 강사 선택 필터 (관리자/행정팀 전용)
     if ((role === 'admin' || role === 'office') && filterInstructor) {
       filtered = filtered.filter(s => {
         const cls = classes.find(c => c.id === s.classId);
         return cls && cls.instructorId === filterInstructor;
       });
-    }
-
-    // 3차: 학생 이름 검색어 필터 (새로 추가된 안전한 로직)
-    if (searchKeyword.trim() !== '') {
-      filtered = filtered.filter(s => s.name.includes(searchKeyword.trim()));
     }
     // 2. 정렬 적용
     return filtered.sort((a, b) => {
@@ -1175,35 +1166,14 @@ function MainApp({ role, user, setRole, teacherId }) {
               
               {/* 관리자/행정팀용 강사 필터 드롭다운 */}
               {(role === 'admin' || role === 'office') && (
-                    <div className="mb-4 flex items-center gap-2 bg-white p-3 rounded-lg border border-gray-200 shadow-sm w-fit">
-                      <span className="text-sm font-bold text-gray-700">👨‍🏫 강사별 학생 보기:</span>
-                      <select value={filterInstructor} onChange={e => setFilterInstructor(e.target.value)} className="border border-gray-300 rounded p-1.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none">
-                        <option value="">전체 강사</option>
-                        {instructors.map(inst => <option key={inst.id} value={inst.id}>{inst.name} 선생님</option>)}
-                      </select>
-                    </div>
-                  )}
-
-                  {/* ★ 새로 추가할 부분: 검색바 및 경고창 ★ */}
-                  <div className="mb-4 flex items-center gap-2 bg-white p-3 rounded-lg border border-gray-200 shadow-sm w-full max-w-sm">
-                    <span className="text-sm font-bold text-gray-700">🔍 학생 검색:</span>
-                    <input 
-                      type="text" 
-                      value={searchKeyword} 
-                      onChange={e => setSearchKeyword(e.target.value)} 
-                      placeholder="이름 검색..." 
-                      className="border border-gray-300 rounded p-1.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none flex-1"
-                    />
-                  </div>
-                  
-                  {/* 검색 결과가 0명일 때 나타나는 경고창 */}
-                  {searchKeyword.trim() !== '' && getSortedStudentsForManagement().length === 0 && (
-                    <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-center text-red-600 font-bold shadow-sm">
-                      입력하신 "{searchKeyword}" 학생은 존재하지 않거나 현재 담당 권한이 없습니다.
-                    </div>
-                  )}
-                  {/* ★ 여기까지 추가 완료 ★ */}
-
+                <div className="mb-4 flex items-center gap-2 bg-white p-3 rounded-lg border border-gray-200 shadow-sm w-fit">
+                  <span className="text-sm font-bold text-gray-700">👨‍🏫 강사별 학생 보기:</span>
+                  <select value={filterInstructor} onChange={e => setFilterInstructor(e.target.value)} className="border border-gray-300 rounded p-1.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none">
+                    <option value="">전체 강사</option>
+                    {instructors.map(inst => <option key={inst.id} value={inst.id}>{inst.name} 선생님</option>)}
+                  </select>
+                </div>
+              )}
               <div className="overflow-x-auto rounded-lg border border-gray-200 shadow-sm">
                 <table className="w-full text-left border-collapse">
                   <thead>
@@ -1432,45 +1402,12 @@ function MainApp({ role, user, setRole, teacherId }) {
           {/* 주간 테스트 */}
           {activeTab === 'tests' && (
             <div>
-              {/* 관리자/행정팀용 강사 필터 */}
-                {(role === 'admin' || role === 'office') && (
-                  <div className="w-full sm:w-48">
-                    <label className="block text-xs font-bold text-purple-900 mb-1">👨‍🏫 강사 선택</label>
-                    <select
-                      value={testInstructorId}
-                      onChange={(e) => {
-                        setTestInstructorId(e.target.value);
-                        setTestClassId(''); // 강사 변경 시 반 선택 안전하게 초기화
-                      }}
-                      className="w-full border-2 border-purple-200 rounded-md p-2 focus:ring-2 focus:ring-purple-500 outline-none text-sm font-bold text-purple-800 bg-white"
-                    >
-                      <option value="">전체 강사</option>
-                      {instructors.map(inst => (
-                        <option key={inst.id} value={inst.id}>{inst.name} 선생님</option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-
-                {/* 대상 반 선택 (강사 이름 T 자동 추가) */}
-                <div className="flex-1 w-full max-w-sm">
-                  <label className="block text-xs font-bold text-purple-900 mb-1">🏫 대상 반 선택</label>
-                  <select 
-                    value={testClassId} 
-                    onChange={e => setTestClassId(e.target.value)} 
-                    className="w-full border-2 border-purple-200 rounded-md p-2 focus:ring-2 focus:ring-purple-500 outline-none text-sm font-bold text-purple-800 bg-white"
-                  >
+              <div className="flex flex-wrap gap-4 items-end mb-6 bg-purple-50 p-4 rounded-lg border border-purple-100">
+                <div className="flex-1 min-w-[200px] max-w-xs">
+                  <label className="block text-xs font-bold text-purple-800 mb-1">대상 반 선택</label>
+                  <select value={testClassId} onChange={e => { setTestClassId(e.target.value); setSelectedIndivStudent(null); }} className="w-full border border-purple-200 rounded-md p-2 focus:ring-2 focus:ring-purple-500 outline-none bg-white font-bold text-gray-700">
                     <option value="">반을 선택해주세요...</option>
-                    {visibleClasses
-                      .filter(c => (role === 'admin' || role === 'office') && testInstructorId ? c.instructorId === testInstructorId : true)
-                      .map(c => {
-                        const instName = instructors.find(i => i.id === c.instructorId)?.name || '미지정';
-                        return (
-                          <option key={c.id} value={c.id}>
-                            {c.name} {(role === 'admin' || role === 'office') ? `(${instName} T)` : ''}
-                          </option>
-                        );
-                    })}
+                    {visibleClasses.map(c => <option key={c.id} value={c.id}>{c.name} ({c.type==='individual'?'개별':'판서'})</option>)}
                   </select>
                 </div>
                 {visibleClasses.some(c => c.id === testClassId) && visibleClasses.find(c => c.id === testClassId)?.type !== 'individual' && !isReadOnly && (
@@ -1568,6 +1505,75 @@ function MainApp({ role, user, setRole, teacherId }) {
                         </div>
                       </div>
                     );
+                  } else {
+                    // --- 판서반(공통) 렌더링 로직 ---
+                    return (
+                      <div className="border border-gray-200 rounded-xl shadow-sm overflow-x-auto bg-white">
+                        <table className="w-full text-center min-w-max border-collapse">
+                          <thead>
+                            <tr className="bg-purple-50 text-purple-900 text-sm font-bold border-b border-purple-200">
+                              <th className="p-3 border-r border-purple-100 w-32 sticky left-0 bg-purple-50 z-10 shadow-[1px_0_0_#e9d5ff] whitespace-nowrap">시험날짜</th>
+                              <th className="p-3 border-r border-purple-100 min-w-[150px] whitespace-nowrap">공통 과정명</th>
+                              <th className="p-3 border-r border-purple-100 w-16 whitespace-nowrap">총문항</th>
+                              {classStds.map(student => (
+                                <th key={student.id} colSpan="2" className="p-2 border-r border-purple-100 bg-purple-100/50">
+                                  <div className="text-sm">{student.name}</div><div className="text-[10px] font-normal text-purple-600">{student.school}</div>
+                                </th>
+                              ))}
+                              {!isReadOnly && <th className="p-3 border-l border-purple-100 bg-purple-50 w-12">삭제</th>}
+                            </tr>
+                            <tr className="bg-white text-xs text-gray-500 border-b border-gray-200">
+                              <th className="border-r border-gray-200 sticky left-0 bg-white z-10 shadow-[1px_0_0_#e5e7eb]"></th><th className="border-r border-gray-200"></th><th className="border-r border-gray-200"></th>
+                              {classStds.map(student => (<React.Fragment key={student.id + '_sub'}><th className="p-1.5 border-r border-gray-200 bg-gray-50">점수</th><th className="p-1.5 border-r border-gray-200 bg-gray-50">재시</th></React.Fragment>))}
+                              {!isReadOnly && <th></th>}
+                            </tr>
+                          </thead>
+                          <tbody className={`divide-y divide-gray-200 text-sm ${isReadOnly ? 'pointer-events-none' : ''}`}>
+                            {Object.values(testRecords).filter(t => t.classId === testClassId).sort((a, b) => a.date.localeCompare(b.date)).map(test => (
+                              <tr key={test.id} className="hover:bg-gray-50">
+                                <td className="p-2 border-r border-gray-200 sticky left-0 bg-white group-hover:bg-purple-50 z-10 shadow-[1px_0_0_#e5e7eb] align-middle relative cursor-pointer">
+                                  <input type="date" value={test.date} onChange={(e) => handleLectureTestChange(test.id, 'date', e.target.value)} onClick={(e) => { try { e.target.showPicker(); } catch(err){} }} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-20"/>
+                                  <div className="font-bold text-purple-800 text-center pointer-events-none relative z-10">{formatShortDate(test.date)}</div>
+                                </td>
+                                <td className="p-2 border-r border-gray-200 text-left align-middle">
+                                  <input type="text" value={test.subject} onChange={(e) => handleLectureTestChange(test.id, 'subject', e.target.value)} placeholder="단원명 입력" className="w-full text-sm outline-none bg-transparent focus:bg-white focus:ring-2 focus:ring-purple-500 rounded p-1.5 border border-transparent hover:border-purple-200"/>
+                                </td>
+                                <td className="p-2 border-r border-gray-200">
+                                  <input type="number" value={test.totalQ} onChange={(e) => handleLectureTestChange(test.id, 'totalQ', e.target.value)} className="w-full bg-transparent text-center outline-none font-bold focus:bg-white focus:ring-2 focus:ring-purple-300 rounded"/>
+                                </td>
+                                
+                                {classStds.map(student => {
+                                  const studentScore = test.scores[student.id] || { score: '', retest: '' };
+                                  const totalQNum = Number(test.totalQ);
+                                  const hasScore = studentScore.score !== '';
+                                  const isInitialPass = hasScore && totalQNum > 0 && (Number(studentScore.score) / totalQNum >= 0.8);
+                                  const hasRetest = studentScore.retest !== '';
+                                  const isRetestPass = hasRetest && totalQNum > 0 && (Number(studentScore.retest) / totalQNum >= 0.8);
+                                  
+                                  const scoreError = testErrors[`${test.id}_${student.id}_score`];
+                                  const retestError = testErrors[`${test.id}_${student.id}_retest`];
+
+                                  return (
+                                    <React.Fragment key={student.id + '_inputs'}>
+                                      <td className="p-1 border-r border-gray-200 relative align-top pt-2">
+                                        <input type="number" value={studentScore.score} onChange={(e) => handleLectureScoreChange(test.id, student.id, 'score', e.target.value)} className={`w-full max-w-[50px] mx-auto block text-center outline-none font-bold rounded p-1 ${scoreError ? 'bg-red-50 text-red-600 border border-red-500 placeholder-red-500 focus:ring-0' : 'text-blue-700 focus:bg-white focus:ring-2 focus:ring-purple-300'}`} placeholder={scoreError ? "범위초과" : ""} />
+                                        {hasScore && <div className={`text-[10px] font-bold text-center mt-1 ${isInitialPass?'text-green-600':'text-red-500'}`}>{isInitialPass?'통과':'미통과'}</div>}
+                                      </td>
+                                      <td className="p-1 border-r border-gray-200 relative align-top pt-2 bg-orange-50/30">
+                                        <input type="number" value={studentScore.retest} disabled={isInitialPass} onChange={(e) => handleLectureScoreChange(test.id, student.id, 'retest', e.target.value)} className={`w-full max-w-[50px] mx-auto block text-center outline-none font-bold rounded p-1 ${isInitialPass ? 'bg-gray-100 text-gray-400 cursor-not-allowed opacity-50' : retestError ? 'bg-red-50 text-red-600 border border-red-500 placeholder-red-500 focus:ring-0' : 'text-orange-600 focus:bg-white focus:ring-2 focus:ring-purple-300'}`} placeholder={retestError ? "범위초과" : ""} />
+                                        {hasScore && studentScore.retest !== '' && <div className={`text-[10px] font-bold text-center mt-1 ${isRetestPass?'text-green-600':'text-red-500'}`}>{isRetestPass?'통과':'미통과'}</div>}
+                                      </td>
+                                    </React.Fragment>
+                                  );
+                                })}
+                                {!isReadOnly && <td className="p-2 text-center"><button onClick={() => setTestToDelete({ id: test.id, type: 'lecture' })} className="text-gray-300 hover:text-red-500 p-1 rounded transition-colors"><Trash2 size={16} /></button></td>}
+                              </tr>
+                            ))}
+                            {Object.values(testRecords).filter(t => t.classId === testClassId).length === 0 && <tr><td colSpan={4 + classStds.length * 2} className="text-center py-10 text-gray-500">항목 추가 버튼을 눌러 테스트를 등록하세요.</td></tr>}
+                          </tbody>
+                        </table>
+                      </div>
+                    );
                   }
                 })()
               )}
@@ -1584,48 +1590,14 @@ function MainApp({ role, user, setRole, teacherId }) {
                     <p className="text-sm text-indigo-700">기본양식(오프라인)을 바탕으로 이번 주 누적 데이터를 취합합니다.</p>
                   </div>
                 </div>
-                <div className="flex flex-col sm:flex-row gap-4 w-full max-w-3xl">
-                    {/* 관리자/행정팀용 강사 필터 */}
-                    {(role === 'admin' || role === 'office') && (
-                      <div className="w-full sm:w-48">
-                        <label className="block text-xs font-bold text-gray-500 mb-1">👨‍🏫 강사 선택</label>
-                        <select
-                          value={reportInstructorId}
-                          onChange={(e) => {
-                            setReportInstructorId(e.target.value);
-                            setReportClassId(''); // 강사 변경 시 반 선택 안전하게 초기화
-                          }}
-                          className="w-full border border-gray-300 rounded p-2 focus:ring-2 focus:ring-blue-500 outline-none text-sm font-bold text-gray-700 bg-white"
-                        >
-                          <option value="">전체 강사</option>
-                          {instructors.map(inst => (
-                            <option key={inst.id} value={inst.id}>{inst.name} 선생님</option>
-                          ))}
-                        </select>
-                      </div>
-                    )}
-
-                    {/* 대상 반 선택 (강사 이름 T 자동 추가) */}
-                    <div className="flex-1 w-full max-w-sm">
-                      <label className="block text-xs font-bold text-gray-500 mb-1">🏫 대상 반 선택</label>
-                      <select 
-                        value={reportClassId} 
-                        onChange={e => setReportClassId(e.target.value)} 
-                        className="w-full border border-gray-300 rounded p-2 focus:ring-2 focus:ring-blue-500 outline-none text-sm font-bold text-gray-700 bg-white"
-                      >
-                        <option value="">반을 선택해주세요...</option>
-                        {visibleClasses
-                          .filter(c => (role === 'admin' || role === 'office') && reportInstructorId ? c.instructorId === reportInstructorId : true)
-                          .map(c => {
-                            const instName = instructors.find(i => i.id === c.instructorId)?.name || '미지정';
-                            return (
-                              <option key={c.id} value={c.id}>
-                                {c.name} {(role === 'admin' || role === 'office') ? `(${instName} T)` : ''}
-                              </option>
-                            );
-                        })}
-                      </select>
-                    </div>
+                <div className="flex flex-wrap gap-4 items-end bg-white p-4 rounded-lg border border-indigo-100">
+                  <div><label className="block text-xs font-bold text-indigo-800 mb-1">시작일 (월)</label><input type="date" value={reportStartDate} onChange={(e) => setReportStartDate(e.target.value)} className="border border-gray-300 rounded-md p-2 focus:ring-2 focus:ring-indigo-500 outline-none font-medium" /></div>
+                  <div><label className="block text-xs font-bold text-indigo-800 mb-1">종료일 (토)</label><input type="date" value={reportEndDate} onChange={(e) => setReportEndDate(e.target.value)} className="border border-gray-300 rounded-md p-2 focus:ring-2 focus:ring-indigo-500 outline-none font-medium" /></div>
+                  <div className="flex-1 min-w-[200px]"><label className="block text-xs font-bold text-indigo-800 mb-1">대상 반 선택</label>
+                    <select value={reportClassId} onChange={e => setReportClassId(e.target.value)} className="w-full border border-gray-300 rounded-md p-2 focus:ring-2 focus:ring-indigo-500 outline-none font-bold text-gray-800">
+                      <option value="">반을 선택하세요...</option>
+                      {visibleClasses.map(c => <option key={c.id} value={c.id}>{c.name} ({c.type==='individual'?'개별':'판서'})</option>)}
+                    </select>
                   </div>
                 </div>
                 
@@ -1699,26 +1671,10 @@ function MainApp({ role, user, setRole, teacherId }) {
           {/* 설정 */}
           {activeTab === 'settings' && !isReadOnly && (
             <div className="max-w-3xl mx-auto space-y-6">
-
-              {/* --- 1. 모든 권한 개방: 전체 시스템 백업 (강사도 접근 가능) --- */}
-              <div className="bg-green-50 p-6 rounded-xl border border-green-200 shadow-sm mb-6">
-                <h3 className="text-lg font-bold text-green-900 mb-2 flex items-center gap-2"><Download size={20} /> 전체 시스템 데이터 백업</h3>
-                <p className="text-sm text-green-700 mb-4">학원의 모든 데이터(강사, 반, 학생, 성적 등)를 백업합니다. PC 다운로드 또는 구글 드라이브 저장을 선택하세요.</p>
-                <div className="flex flex-wrap gap-3">
-                  <button onClick={handleExportAllDataToJSON} className="bg-green-600 text-white px-4 py-2 rounded font-bold hover:bg-green-700 shadow-sm flex items-center gap-2 w-fit transition">
-                    <Download size={18} /> PC로 파일 다운로드
-                  </button>
-                  <button onClick={handleBackupToGoogleDrive} disabled={isDriveSyncing} className="bg-blue-600 text-white px-4 py-2 rounded font-bold hover:bg-blue-700 shadow-sm flex items-center gap-2 w-fit transition disabled:opacity-50">
-                    {isDriveSyncing ? <Loader2 size={18} className="animate-spin"/> : <Sparkles size={18} />}
-                    {isDriveSyncing ? '클라우드 전송 중...' : '구글 드라이브에 백업하기'}
-                  </button>
-                </div>
-              </div>
-
-              {/* --- 2. 관리자 전용 기능 묶음 (강사에게는 숨김 처리) --- */}
+              
+              {/* 관리자 전용 브라우저 탭 설정 */}
               {role === 'admin' && (
                 <>
-                  {/* 서버 데이터 강제 청소 */}
                   <div className="bg-red-50 p-6 rounded-xl border border-red-200 shadow-sm mb-6">
                     <h3 className="text-lg font-bold text-red-900 mb-2 flex items-center gap-2"><AlertCircle size={20} /> 서버 데이터베이스 강제 청소</h3>
                     <p className="text-sm text-red-700 mb-4">삭제해도 계속 부활하는 과거의 유령 테스트 데이터들을 서버에서 완전히 날려버립니다.</p>
@@ -1729,22 +1685,28 @@ function MainApp({ role, user, setRole, teacherId }) {
                       }
                     }} className="bg-red-600 text-white px-4 py-2 rounded font-bold hover:bg-red-700 shadow-sm">유령 테스트 데이터 영구 삭제</button>
                   </div>
-
-                  {/* 시스템 외관 및 자동 백업 타이머 설정 */}
-                  <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
-                    <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2"><Eye size={20} className="text-blue-500" /> 시스템 외관 설정 (관리자 전용)</h3>
-                    <div className="flex flex-col gap-4">
-                      <div className="bg-blue-50 p-4 rounded-lg border border-blue-100 mb-2">
-                        <label className="block text-sm font-bold text-blue-900 mb-1 flex items-center gap-2">⏰ 클라우드 자동 백업 시간 설정</label>
-                        <p className="text-[11px] text-blue-700 mb-2">지정된 시간이 지나고 관리자 계정으로 접속 중일 때 백그라운드에서 구글 드라이브로 1회 자동 전송됩니다.</p>
-                        <input type="time" value={systemSettings?.autoBackupTime || ''} onChange={(e) => setSystemSettings(prev => ({...prev, autoBackupTime: e.target.value}))} className="w-40 border border-blue-300 rounded p-2 focus:ring-2 focus:ring-blue-500 outline-none text-sm bg-white font-bold" />
-                        <button onClick={() => setSystemSettings(prev => ({...prev, autoBackupTime: ''}))} className="ml-2 text-xs text-gray-500 underline hover:text-gray-700">시간 해제(자동백업 끄기)</button>
-                      </div>
-                      <div>
-                        <label className="block text-sm font-bold text-gray-700 mb-1">브라우저 탭 이름 (Title)</label>
-                        <input type="text" value={systemSettings?.title || ''} onChange={(e) => setSystemSettings(prev => ({...prev, title: e.target.value}))} placeholder="예: 임팩트 수학학원" className="w-full border border-gray-300 rounded p-2 focus:ring-2 focus:ring-blue-500 outline-none text-sm bg-gray-50" />
-                      </div>
-                      <div>
+            {/* 데이터 백업 기능 블록 */}
+                  <div className="bg-green-50 p-6 rounded-xl border border-green-200 shadow-sm mb-6">
+                    <h3 className="text-lg font-bold text-green-900 mb-2 flex items-center gap-2"><Download size={20} /> 전체 시스템 데이터 백업</h3>
+                    <p className="text-sm text-green-700 mb-4">학원의 모든 데이터(강사, 반, 학생, 성적 등)를 백업합니다. PC 다운로드 또는 구글 드라이브 저장을 선택하세요.</p>
+                    <div className="flex flex-wrap gap-3">
+                      <button onClick={handleExportAllDataToJSON} className="bg-green-600 text-white px-4 py-2 rounded font-bold hover:bg-green-700 shadow-sm flex items-center gap-2 w-fit transition">
+                        <Download size={18} /> PC로 파일 다운로드
+                      </button>
+                      <button onClick={handleBackupToGoogleDrive} disabled={isDriveSyncing} className="bg-blue-600 text-white px-4 py-2 rounded font-bold hover:bg-blue-700 shadow-sm flex items-center gap-2 w-fit transition disabled:opacity-50">
+                        {isDriveSyncing ? <Loader2 size={18} className="animate-spin"/> : <Sparkles size={18} />}
+                        {isDriveSyncing ? '클라우드 전송 중...' : '구글 드라이브에 백업하기'}
+                      </button>
+                    </div>
+                  </div>            
+                <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                  <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2"><Eye size={20} className="text-blue-500" /> 시스템 외관 설정 (관리자 전용)</h3>
+                  <div className="flex flex-col gap-4">
+                    <div>
+                      <label className="block text-sm font-bold text-gray-700 mb-1">브라우저 탭 이름 (Title)</label>
+                      <input type="text" value={systemSettings?.title || ''} onChange={(e) => setSystemSettings(prev => ({...prev, title: e.target.value}))} placeholder="예: 임팩트 수학학원" className="w-full border border-gray-300 rounded p-2 focus:ring-2 focus:ring-blue-500 outline-none text-sm bg-gray-50" />
+                    </div>
+                    <div>
                         <label className="block text-sm font-bold text-gray-700 mb-1">브라우저 아이콘 (Favicon URL)</label>
                         <p className="text-[10px] text-gray-500 mb-1">인터넷에 올려진 이미지 주소(http://...)를 입력하세요. (.png, .ico 권장)</p>
                         <input type="text" value={systemSettings?.iconUrl || ''} onChange={(e) => setSystemSettings(prev => ({...prev, iconUrl: e.target.value}))} placeholder="예: https://example.com/icon.png" className="w-full border border-gray-300 rounded p-2 focus:ring-2 focus:ring-blue-500 outline-none text-sm bg-gray-50" />
@@ -1754,7 +1716,6 @@ function MainApp({ role, user, setRole, teacherId }) {
                 </>
               )}
 
-              {/* --- 3. 리포트 기본 양식 템플릿 설정 --- */}
               <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
                 <h3 className="text-lg font-bold text-gray-900 mb-6 flex items-center gap-2"><Settings size={20} className="text-gray-500" /> 리포트 기본 양식 템플릿 설정</h3>
                 
@@ -1796,15 +1757,11 @@ function MainApp({ role, user, setRole, teacherId }) {
                   <input type="text" value={noTestMessage} onChange={(e) => setNoTestMessage(e.target.value)} className="w-full border border-gray-300 rounded-lg p-3 font-mono text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-gray-50" />
                 </div>
               </div>
-
             </div>
           )}
-          {/* 설정 탭 끝 */}
 
-        </main>
+        </div>
       </div>
     </div>
   );
 }
-
-export default App;
