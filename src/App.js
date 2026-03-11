@@ -5,7 +5,7 @@ import { Users, BookOpen, Calendar, Plus, Trash2, Edit2, Check, X, AlertCircle, 
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
 import { getFirestore, doc, setDoc, getDoc, updateDoc } from 'firebase/firestore';
-import SettingsTab from './components/SettingsTab'; // <--- 이 줄을 추가합니다.
+import SettingsTab from './components/SettingsTab';
 import { AcademyProvider, useAcademy } from './context/AcademyContext';
 
 // --- 1. Firebase 설정 ---
@@ -45,11 +45,6 @@ const CLASS_COLORS = [
   { bg: 'bg-cyan-50', text: 'text-cyan-800', border: 'border-cyan-200' },
 ];
 
-const DEFAULT_TEMPLATE = `안녕하세요. 임팩트수학학원 [학생이름]학생 담임입니다.\n\n주간 테스트 결과 및 성취도 안내드립니다.\n[테스트결과목록]\n과제물 성취도 : 평균 [과제성취도]%\n주간 진도 : [주간진도]\n\n비고 : [비고]`;
-const DEFAULT_TEST_ITEM_TEMPLATE = `테스트 과정 : [단원명]\n테스트 결과 : [맞은개수]/[총문제수] [통과여부]\n반 평균 : [반평균]`;
-const DEFAULT_NO_TEST_MSG = `이번 주 진행된 테스트가 없습니다.`;
-
-// 이번 주 월~토 날짜 구하기
 const getThisWeekMonSat = () => {
   const now = new Date();
   const day = now.getDay();
@@ -75,14 +70,12 @@ const getDayName = (dateStr) => {
   return DAYS.find(x => x.val === dayIndex)?.label || '';
 };
 
-// 한국 표준시(KST) 기준 오늘 날짜 구하기
 const getTodayLocal = () => {
   const offset = new Date().getTimezoneOffset() * 60000;
   const dateOffset = new Date(Date.now() - offset);
   return dateOffset.toISOString().split("T")[0];
 };
 
-// 날짜를 "3월 10일 (화)" 형태로 줄여주는 함수
 const formatShortDate = (dateStr) => {
   if(!dateStr) return '';
   const [, m, d] = dateStr.split('-');
@@ -97,7 +90,6 @@ const getSchoolColor = (schoolName) => {
   return colors[hash % colors.length];
 };
 
-// --- 자동 높이 조절 Textarea 컴포넌트 ---
 const AutoResizeTextarea = ({ value, onChange, placeholder, className, disabled }) => {
   const textareaRef = useRef(null);
   useEffect(() => {
@@ -111,7 +103,6 @@ const AutoResizeTextarea = ({ value, onChange, placeholder, className, disabled 
   );
 };
 
-// --- 1. 로그인 화면 컴포넌트 ---
 function LoginScreen({ onLogin, error }) {
   const [id, setId] = useState('');
   const [pw, setPw] = useState('');
@@ -130,19 +121,11 @@ function LoginScreen({ onLogin, error }) {
           <button onClick={() => onLogin(id, pw)} className="w-full bg-blue-600 text-white font-bold py-3 rounded-lg hover:bg-blue-700 transition shadow-md mt-4">시스템 접속</button>
           {error && <div className="mt-4 p-3 bg-red-50 border border-red-200 text-red-600 text-sm font-bold rounded text-center">{error}</div>}
         </div>
-        <div className="mt-8 bg-gray-50 p-4 rounded-lg border border-gray-200 text-xs text-gray-500">
-          <p className="text-sm font-bold text-gray-700 mb-2">접속 안내</p>
-          <ul className="text-xs text-gray-600 space-y-2">
-            <li>• <strong className="text-blue-600">강사 계정은 관리자에게 아이디와 비밀번호를 부여받아야 접속할 수 있습니다.</strong></li>
-            <li>• 관리자 및 행정팀은 지정된 전용 계정으로 로그인해 주십시오.</li>
-          </ul>
-        </div>
       </div>
     </div>
   );
 }
 
-// --- 2. 최상위 App 컴포넌트 ---
 export default function App() {
   const [user, setUser] = useState(null);
   const [role, setRole] = useState(() => localStorage.getItem('userRole') || null); 
@@ -154,10 +137,10 @@ export default function App() {
       try {
         if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) await signInWithCustomToken(auth, __initial_auth_token);
         else await signInAnonymously(auth);
-      } catch (err) { console.warn("Auth warning:", err.message); }
+      } catch (err) {}
     };
     initAuth();
-    const unsubscribe = onAuthStateChanged(auth, setUser, (error) => { console.warn("Auth state warning:", error.message); });
+    const unsubscribe = onAuthStateChanged(auth, setUser);
     return () => unsubscribe();
   }, []);
 
@@ -180,44 +163,44 @@ export default function App() {
   };
 
   if (!role) return <LoginScreen onLogin={handleLogin} error={loginError} />;
+  
+  // ★ 여기서부터 AcademyProvider가 적용됩니다.
   return (
     <AcademyProvider db={db} appId={appId} user={user} isReadOnly={role === 'office'}>
-      <MainApp role={role} user={user} handleLogout={handleLogout} teacherId={teacherId} />
+      <MainApp role={role} user={user} setRole={setRole} teacherId={teacherId} />
     </AcademyProvider>
   );
 }
 
-// --- 3. 메인 앱 컴포넌트 ---
 function MainApp({ role, user, setRole, teacherId }) {
   const isReadOnly = role === 'office';
-  const [activeTab, setActiveTab] = useState('daily');
-  
-  // ★ 중앙 창고에서 모든 데이터와 함수를 한 번에 꺼내옵니다.
+  const [activeTab, setActiveTab] = useState(() => localStorage.getItem('activeTab') || 'daily');
+
+  useEffect(() => { localStorage.setItem('activeTab', activeTab); }, [activeTab]);
+
+  // ★ 중앙 창고에서 데이터 꺼내오기
   const {
     isLoaded, instructors, setInstructors, classes, setClasses, students, setStudents,
     records, setRecords, testRecords, setTestRecords, individualTestRecords, setIndividualTestRecords,
     reportRemarks, setReportRemarks, excludeFromReport, setExcludeFromReport,
     classWeeklyProgress, setClassWeeklyProgress, individualWeeklyProgress, setIndividualWeeklyProgress,
     systemSettings, setSystemSettings, offlineTemplate, setOfflineTemplate,
-    testItemTemplate, setTestItemTemplate, noTestMessage, setNoTestMessage,
-    DEFAULT_TEMPLATE, DEFAULT_TEST_ITEM_TEMPLATE, DEFAULT_NO_TEST_MSG
+    testItemTemplate, setTestItemTemplate, noTestMessage, setNoTestMessage
   } = useAcademy();
 
-  // 화면 UI 필터용 및 로컬 State (창고에 넣을 필요 없는 것들)
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
-  const [testClassId, setTestClassId] = useState('');
+  const [testClassId, setTestClassId] = useState('c1');
   const [testErrors, setTestErrors] = useState({}); 
   const [reportStartDate, setReportStartDate] = useState(weekDatesInit.start);
   const [reportEndDate, setReportEndDate] = useState(weekDatesInit.end);
-  const [reportClassId, setReportClassId] = useState('');
+  const [reportClassId, setReportClassId] = useState('c1');
   const [viewMode, setViewMode] = useState('daily');
   const [sortConfig, setSortConfig] = useState({ key: 'name', direction: 'asc' });
 
-  // 검색 및 강사 필터용 변수
   const [filterInstructor, setFilterInstructor] = useState('');
   const [searchKeyword, setSearchKeyword] = useState('');
-  const [testInstructorId, setTestInstructorId] = useState('');
   const [reportInstructorId, setReportInstructorId] = useState('');
+  const [testInstructorId, setTestInstructorId] = useState('');
 
   const [toast, setToast] = useState(null);
   const [classToDelete, setClassToDelete] = useState(null);
@@ -228,116 +211,68 @@ function MainApp({ role, user, setRole, teacherId }) {
   const [editingStudentId, setEditingStudentId] = useState(null);
   const [editStudentData, setEditStudentData] = useState({ name: '', school: '', classId: '' });
   const [copiedId, setCopiedId] = useState(null);
-  const [aiReports, setAiReports] = useState({});
-  const [isGenerating, setIsGenerating] = useState({});
 
   const showToast = (message, type = 'success') => { setToast({ message, type }); setTimeout(() => setToast(null), 3000); };
 
-  // ==========================================
-  // [백업 기능 1] 로컬 PC로 전체 데이터 다운로드 (JSON)
-  // ==========================================
+  // 백업 기능
   const handleExportAllDataToJSON = () => {
     const allData = { instructors, classes, students, records, testRecords, individualTestRecords, classWeeklyProgress, individualWeeklyProgress, reportRemarks, excludeFromReport, offlineTemplate, testItemTemplate, noTestMessage, systemSettings };
     const blob = new Blob([JSON.stringify(allData, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    
-    // 한국 시간 기준 파일명 생성
+    const link = document.createElement('a'); link.href = url;
     const offset = new Date().getTimezoneOffset() * 60000;
     const dateOffset = new Date(Date.now() - offset);
-    const todayLocal = dateOffset.toISOString().split("T")[0];
-    
-    link.download = `임팩트수학_전체백업_${todayLocal}.json`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    link.download = `임팩트수학_전체백업_${dateOffset.toISOString().split("T")[0]}.json`;
+    document.body.appendChild(link); link.click(); document.body.removeChild(link); URL.revokeObjectURL(url);
     showToast('전체 데이터 백업 파일이 PC에 다운로드되었습니다.');
   };
 
-  // ==========================================
-  // [백업 기능 2] 구글 드라이브 클라우드 전송
-  // ==========================================
   const [isDriveSyncing, setIsDriveSyncing] = useState(false);
   const handleBackupToGoogleDrive = async () => {
     setIsDriveSyncing(true);
     const allData = { instructors, classes, students, records, testRecords, individualTestRecords, classWeeklyProgress, individualWeeklyProgress, reportRemarks, excludeFromReport, offlineTemplate, testItemTemplate, noTestMessage, systemSettings };
-    
-    // ★ 주의: 아래 따옴표 안에 아까 발급받은 '구글 앱스 스크립트 웹 앱 URL'을 반드시 붙여넣으세요!
     const googleScriptUrl = "https://script.google.com/macros/s/AKfycbyWkX3PJ-7IXIu7zAmd1TaUGqS32jHqhQfEqmrp3P8txkqUARXr6EDfsR0CL8-9S3c3/exec"; 
-
     try {
-      const response = await fetch(googleScriptUrl, {
-        method: "POST",
-        headers: { "Content-Type": "text/plain;charset=utf-8" },
-        body: JSON.stringify(allData)
-      });
-      const result = await response.json();
-      if (result.status === "success") {
-        showToast('구글 드라이브에 안전하게 백업되었습니다!');
-      } else {
-        showToast('드라이브 백업 중 오류가 발생했습니다.', 'error');
-      }
-    } catch (error) {
-      showToast('네트워크 오류로 백업에 실패했습니다.', 'error');
-      console.error(error);
-    } finally {
-      setIsDriveSyncing(false);
-    }
+      const response = await fetch(googleScriptUrl, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify(allData) });
+      if ((await response.json()).status === "success") showToast('구글 드라이브에 안전하게 백업되었습니다!');
+      else showToast('드라이브 백업 중 오류가 발생했습니다.', 'error');
+    } catch (error) { showToast('네트워크 오류로 백업에 실패했습니다.', 'error'); } finally { setIsDriveSyncing(false); }
   };
-  
-  // 브라우저 탭 제목 및 아이콘 실시간 반영 로직
+
   useEffect(() => {
     document.title = systemSettings.title || '임팩트 수학학원';
     if (systemSettings.iconUrl) {
       let link = document.querySelector("link[rel~='icon']");
-      if (!link) {
-        link = document.createElement('link');
-        link.rel = 'icon';
-        document.head.appendChild(link);
-      }
+      if (!link) { link = document.createElement('link'); link.rel = 'icon'; document.head.appendChild(link); }
       link.href = systemSettings.iconUrl;
     }
   }, [systemSettings]);
 
-  // --- 권한 및 필터링 ---
   const visibleClasses = role === 'teacher' ? classes.filter(c => c.instructorId === teacherId) : classes;
   const visibleStudents = role === 'teacher' ? students.filter(s => visibleClasses.some(c => c.id === s.classId)) : students;
 
-  // --- 강사/학생/반 관리 로직 ---
   const [newInstName, setNewInstName] = useState('');
   const [newInstId, setNewInstId] = useState('');
   const [newInstPw, setNewInstPw] = useState('');
-
   const [editingInstId, setEditingInstId] = useState(null);
   const [editInstData, setEditInstData] = useState({ name: '', password: '' });
 
-  const startEditingInst = (inst) => {
-    setEditingInstId(inst.id);
-    setEditInstData({ name: inst.name, password: inst.password });
-  };
-
+  const startEditingInst = (inst) => { setEditingInstId(inst.id); setEditInstData({ name: inst.name, password: inst.password }); };
   const saveEditedInst = () => {
-    if (!editInstData.name || !editInstData.password) return showToast('이름과 비밀번호를 입력하세요.', 'error');
+    if (!editInstData.name || !editInstData.password) return showToast('입력하세요.', 'error');
     setInstructors(instructors.map(i => i.id === editingInstId ? { ...i, ...editInstData } : i));
-    setEditingInstId(null);
-    showToast('강사 정보가 수정되었습니다.');
+    setEditingInstId(null); showToast('수정되었습니다.');
   };
-
   const handleAddInstructor = () => {
-    if (!newInstName || !newInstId || !newInstPw) return showToast('강사 정보를 모두 입력하세요.', 'error');
+    if (!newInstName || !newInstId || !newInstPw) return showToast('모두 입력하세요.', 'error');
     setInstructors([...instructors, { id: 'inst_' + Date.now(), name: newInstName, username: newInstId, password: newInstPw }]);
-    setNewInstName(''); setNewInstId(''); setNewInstPw('');
-    showToast('신규 강사가 생성되었습니다.');
+    setNewInstName(''); setNewInstId(''); setNewInstPw(''); showToast('생성되었습니다.');
   };
-
-  // 강사 삭제 시 반 미지정 연쇄 처리 적용 완료
   const handleDeleteInstructor = (id) => {
-    if (window.confirm('정말 이 강사 계정을 삭제하시겠습니까?\n(이 강사에게 배정되었던 반들은 자동으로 "미지정" 상태가 됩니다.)')) {
+    if (window.confirm('정말 삭제하시겠습니까?\n이 강사에게 배정되었던 반들은 자동으로 "미지정" 상태가 됩니다.')) {
       setInstructors(instructors.filter(i => i.id !== id));
       setClasses(classes.map(c => c.instructorId === id ? { ...c, instructorId: '' } : c));
-      showToast('강사가 삭제되었으며, 관련 반은 미지정 처리되었습니다.', 'success');
+      showToast('삭제 완료.', 'success');
     }
   };
 
@@ -345,121 +280,57 @@ function MainApp({ role, user, setRole, teacherId }) {
   const [newClassDays, setNewClassDays] = useState([]);
   const [newClassInstructor, setNewClassInstructor] = useState(''); 
   const [newClassType, setNewClassType] = useState('lecture'); 
-
   const handleAddClass = () => {
     if (isReadOnly) return;
-    if (!newClassName.trim() || newClassDays.length === 0) return showToast('반 이름과 요일을 입력하세요.', 'error');
+    if (!newClassName.trim() || newClassDays.length === 0) return showToast('입력하세요.', 'error');
     const assignedInst = role === 'admin' ? newClassInstructor : teacherId;
-    if (!assignedInst) return showToast('담당 강사를 지정해주세요.', 'error');
-
+    if (!assignedInst) return showToast('강사를 지정해주세요.', 'error');
     setClasses([...classes, { id: Date.now().toString(), name: newClassName, days: newClassDays, instructorId: assignedInst, type: newClassType }]);
-    setNewClassName(''); setNewClassDays([]); setNewClassType('lecture');
-    showToast('신규 반이 생성되었습니다.');
+    setNewClassName(''); setNewClassDays([]); setNewClassType('lecture'); showToast('신규 반 생성됨.');
   };
-
   const handleDeleteClass = (id) => {
     if (isReadOnly) return;
-    if (students.some(s => s.classId === id)) { 
-      setClassDeleteWarning(true); 
-      return; 
-    }
+    if (students.some(s => s.classId === id)) { setClassDeleteWarning(true); return; }
     setClassToDelete(id);
   };
-
   const confirmDeleteClass = () => {
-    if (classToDelete && !isReadOnly) {
-      setClasses(classes.filter(c => c.id !== classToDelete));
-      setClassToDelete(null);
-      showToast('반이 정상적으로 삭제되었습니다.');
-    }
+    if (classToDelete && !isReadOnly) { setClasses(classes.filter(c => c.id !== classToDelete)); setClassToDelete(null); showToast('삭제됨.'); }
   };
-
   const toggleDaySelection = (val) => {
-    if (isReadOnly) return;
-    setNewClassDays(prev => prev.includes(val) ? prev.filter(d => d !== val) : [...prev, val]);
+    if (isReadOnly) return; setNewClassDays(prev => prev.includes(val) ? prev.filter(d => d !== val) : [...prev, val]);
   };
-
   const [editingClassId, setEditingClassId] = useState(null);
   const [editClassData, setEditClassData] = useState({ name: '', days: [], instructorId: '' });
-
-  const startEditingClass = (cls) => {
-    setEditingClassId(cls.id);
-    setEditClassData({ name: cls.name, days: [...cls.days], instructorId: cls.instructorId });
-  };
-
+  const startEditingClass = (cls) => { setEditingClassId(cls.id); setEditClassData({ name: cls.name, days: [...cls.days], instructorId: cls.instructorId }); };
   const saveEditedClass = () => {
-    if (!editClassData.name.trim() || editClassData.days.length === 0) return showToast('반 이름과 요일을 확인해주세요.', 'error');
+    if (!editClassData.name.trim() || editClassData.days.length === 0) return showToast('확인해주세요.', 'error');
     setClasses(classes.map(c => c.id === editingClassId ? { ...c, ...editClassData } : c));
-    setEditingClassId(null);
-    showToast('반 정보가 수정되었습니다.');
+    setEditingClassId(null); showToast('수정됨.');
   };
 
-  // --- 학생 관리 로직 ---
   const [newStudentName, setNewStudentName] = useState('');
   const [newStudentSchool, setNewStudentSchool] = useState('');
   const [newStudentClass, setNewStudentClass] = useState('');
-
   const handleAddStudent = () => {
     if (isReadOnly) return;
-    if (!newStudentName.trim() || !newStudentClass) return showToast('정보를 모두 입력해주세요.', 'error');
+    if (!newStudentName.trim() || !newStudentClass) return showToast('입력해주세요.', 'error');
     setStudents([...students, { id: Date.now().toString(), name: newStudentName, school: newStudentSchool, classId: newStudentClass }]);
-    setNewStudentName(''); setNewStudentSchool('');
-    showToast('학생이 등록되었습니다.');
+    setNewStudentName(''); setNewStudentSchool(''); showToast('등록됨.');
   };
-
-  const startEditingStudent = (student) => {
-    setEditingStudentId(student.id);
-    setEditStudentData({ name: student.name, school: student.school, classId: student.classId });
-  };
-
-  const saveEditedStudent = () => {
-    setStudents(students.map(s => s.id === editingStudentId ? { ...s, ...editStudentData } : s));
-    setEditingStudentId(null);
-    showToast('학생 정보가 수정되었습니다.');
-  };
-
-  const confirmDeleteStudent = () => {
-    if (studentToDelete && !isReadOnly) {
-      setStudents(students.filter(s => s.id !== studentToDelete));
-      setStudentToDelete(null);
-      showToast('학생이 삭제되었습니다.');
-    }
-  };
-
-  const handleSort = (key) => {
-    let direction = 'asc';
-    if (sortConfig.key === key && sortConfig.direction === 'asc') direction = 'desc';
-    setSortConfig({ key, direction });
-  };
-
+  const startEditingStudent = (student) => { setEditingStudentId(student.id); setEditStudentData({ name: student.name, school: student.school, classId: student.classId }); };
+  const saveEditedStudent = () => { setStudents(students.map(s => s.id === editingStudentId ? { ...s, ...editStudentData } : s)); setEditingStudentId(null); showToast('수정됨.'); };
+  const confirmDeleteStudent = () => { if (studentToDelete && !isReadOnly) { setStudents(students.filter(s => s.id !== studentToDelete)); setStudentToDelete(null); showToast('삭제됨.'); } };
+  const handleSort = (key) => { let direction = 'asc'; if (sortConfig.key === key && sortConfig.direction === 'asc') direction = 'desc'; setSortConfig({ key, direction }); };
   const getSortedStudentsForManagement = () => {
-    // 1차: 권한별 분리는 visibleStudents에 이미 적용되어 있음
     let filtered = [...visibleStudents];
-    
-    // 2차: 강사 선택 필터 (관리자/행정팀 전용)
-    if ((role === 'admin' || role === 'office') && filterInstructor) {
-      filtered = filtered.filter(s => {
-        const cls = classes.find(c => c.id === s.classId);
-        return cls && cls.instructorId === filterInstructor;
-      });
-    }
-
-    // 3차: 학생 이름 통합 검색 필터 (추가 완료)
-    if (searchKeyword.trim() !== '') {
-      filtered = filtered.filter(s => s.name.includes(searchKeyword.trim()));
-    }
-
-    // 정렬 적용
+    if ((role === 'admin' || role === 'office') && filterInstructor) { filtered = filtered.filter(s => { const cls = classes.find(c => c.id === s.classId); return cls && cls.instructorId === filterInstructor; }); }
+    if (searchKeyword.trim() !== '') { filtered = filtered.filter(s => s.name.includes(searchKeyword.trim())); }
     return filtered.sort((a, b) => {
       let aVal = a[sortConfig.key]; let bVal = b[sortConfig.key];
-      if (sortConfig.key === 'classId') {
-        aVal = classes.find(c => c.id === a.classId)?.name || ''; bVal = classes.find(c => c.id === b.classId)?.name || '';
-      }
+      if (sortConfig.key === 'classId') { aVal = classes.find(c => c.id === a.classId)?.name || ''; bVal = classes.find(c => c.id === b.classId)?.name || ''; }
       if (sortConfig.key === 'instructorId') {
-        const aInst = classes.find(c => c.id === a.classId)?.instructorId || '';
-        const bInst = classes.find(c => c.id === b.classId)?.instructorId || '';
-        aVal = instructors.find(i => i.id === aInst)?.name || '';
-        bVal = instructors.find(i => i.id === bInst)?.name || '';
+        const aInst = classes.find(c => c.id === a.classId)?.instructorId || ''; const bInst = classes.find(c => c.id === b.classId)?.instructorId || '';
+        aVal = instructors.find(i => i.id === aInst)?.name || ''; bVal = instructors.find(i => i.id === bInst)?.name || '';
       }
       if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
       if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
@@ -467,228 +338,126 @@ function MainApp({ role, user, setRole, teacherId }) {
     });
   };
 
-  // --- 일일 출결/과제 로직 ---
   const getWeekDays = (dateString) => {
     if (!dateString) return [];
-    const [y, m, d] = dateString.split('-');
-    const date = new Date(y, m - 1, d);
-    const day = date.getDay(); 
-    const diffToMonday = date.getDate() - day + (day === 0 ? -6 : 1);
-    const monday = new Date(y, m - 1, diffToMonday);
-    
+    const [y, m, d] = dateString.split('-'); const date = new Date(y, m - 1, d); const day = date.getDay(); 
+    const diffToMonday = date.getDate() - day + (day === 0 ? -6 : 1); const monday = new Date(y, m - 1, diffToMonday);
     const weekDays = [];
     for (let i = 0; i < 6; i++) { 
       const currentDay = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + i);
-      const year = currentDay.getFullYear();
-      const month = String(currentDay.getMonth() + 1).padStart(2, '0');
-      const dayOfMonth = String(currentDay.getDate()).padStart(2, '0');
-      weekDays.push(`${year}-${month}-${dayOfMonth}`);
+      weekDays.push(`${currentDay.getFullYear()}-${String(currentDay.getMonth() + 1).padStart(2, '0')}-${String(currentDay.getDate()).padStart(2, '0')}`);
     }
     return weekDays;
   };
-
-  const getLocalDayOfWeek = (dateString) => {
-    if (!dateString) return 0;
-    const [y, m, d] = dateString.split('-');
-    return new Date(y, m - 1, d).getDay();
-  };
-
+  const getLocalDayOfWeek = (dateString) => { if (!dateString) return 0; const [y, m, d] = dateString.split('-'); return new Date(y, m - 1, d).getDay(); };
   const handleSpecificDateRecordChange = (dateStr, studentId, field, value) => {
     if (isReadOnly) return;
-    setRecords(prev => {
-      const dateRecords = prev[dateStr] || {};
-      return { ...prev, [dateStr]: { ...dateRecords, [studentId]: { ...(dateRecords[studentId] || { progress: 0, remark: '' }), [field]: value } } };
-    });
+    setRecords(prev => { const dateRecords = prev[dateStr] || {}; return { ...prev, [dateStr]: { ...dateRecords, [studentId]: { ...(dateRecords[studentId] || { progress: 0, remark: '' }), [field]: value } } }; });
   };
-
-  const handleRecordChange = (studentId, field, value) => {
-    handleSpecificDateRecordChange(selectedDate, studentId, field, value);
-  };
-
+  const handleRecordChange = (studentId, field, value) => handleSpecificDateRecordChange(selectedDate, studentId, field, value);
   const handleQuickRemark = (dateStr, studentId, type) => {
     if (isReadOnly) return;
     setRecords(prev => {
-      const dateRecords = prev[dateStr] || {};
-      const studentRecord = dateRecords[studentId] || { progress: 100, remark: '' };
-      let currentRemark = studentRecord.remark || '';
-      let newProgress = studentRecord.progress;
-
+      const dateRecords = prev[dateStr] || {}; const studentRecord = dateRecords[studentId] || { progress: 100, remark: '' };
+      let currentRemark = studentRecord.remark || ''; let newProgress = studentRecord.progress;
       if (type === '결석') {
         currentRemark = currentRemark.replace(/지각/g, '').trim(); 
-        if (currentRemark.includes('결석')) {
-          currentRemark = currentRemark.replace(/결석/g, '').replace(/\s+/g, ' ').trim();
-        } else {
-          currentRemark = (currentRemark + ' 결석').trim();
-          newProgress = 0;
-        }
+        if (currentRemark.includes('결석')) { currentRemark = currentRemark.replace(/결석/g, '').replace(/\s+/g, ' ').trim(); } 
+        else { currentRemark = (currentRemark + ' 결석').trim(); newProgress = 0; }
       } else if (type === '지각') {
         currentRemark = currentRemark.replace(/결석/g, '').trim(); 
-        if (currentRemark.includes('지각')) {
-          currentRemark = currentRemark.replace(/지각/g, '').replace(/\s+/g, ' ').trim();
-        } else {
-          currentRemark = (currentRemark + ' 지각').trim();
-        }
+        if (currentRemark.includes('지각')) { currentRemark = currentRemark.replace(/지각/g, '').replace(/\s+/g, ' ').trim(); } 
+        else { currentRemark = (currentRemark + ' 지각').trim(); }
       }
       return { ...prev, [dateStr]: { ...dateRecords, [studentId]: { ...studentRecord, remark: currentRemark, progress: newProgress } } };
     });
   };
-
   const importPreviousRemark = (studentId, currentDate) => {
     const sortedDates = Object.keys(records).sort((a, b) => b.localeCompare(a));
     const prevDate = sortedDates.find(d => d < currentDate && records[d][studentId]?.remark?.trim());
-    if (prevDate) {
-      handleSpecificDateRecordChange(currentDate, studentId, 'remark', records[prevDate][studentId].remark);
-      showToast(`이전(${prevDate}) 특이사항을 불러왔습니다.`);
-    } else {
-      showToast('이전 특이사항 기록이 없습니다.', 'error');
-    }
+    if (prevDate) { handleSpecificDateRecordChange(currentDate, studentId, 'remark', records[prevDate][studentId].remark); showToast(`이전(${prevDate}) 특이사항 복사됨.`); } 
+    else showToast('이전 기록 없음.', 'error');
   };
 
   const selectedDayOfWeek = getLocalDayOfWeek(selectedDate);
   const targetClasses = visibleClasses.filter(c => c.days.includes(selectedDayOfWeek));
 
-  // --- 판서반(공통) 테스트 로직 ---
- const handleAddLectureTestRow = () => {
+  const handleAddLectureTestRow = () => {
     if (isReadOnly || !testClassId) return;
     const newId = 'test_' + Date.now();
     setTestRecords(prev => ({ ...prev, [newId]: { id: newId, classId: testClassId, date: getTodayLocal(), subject: '', totalQ: '', scores: {} } }));
   };
-
-  const handleLectureTestChange = (testId, field, value) => {
-    if (isReadOnly) return;
-    setTestRecords(prev => ({ ...prev, [testId]: { ...prev[testId], [field]: value } }));
-  };
-
-  const handleDeleteTestRow = (testId) => {
-    if (isReadOnly) return;
-    setTestToDelete({ id: testId, type: 'lecture' });
-  };
-
+  const handleLectureTestChange = (testId, field, value) => { if (!isReadOnly) setTestRecords(prev => ({ ...prev, [testId]: { ...prev[testId], [field]: value } })); };
+  const handleDeleteTestRow = (testId) => { if (!isReadOnly) setTestToDelete({ id: testId, type: 'lecture' }); };
   const confirmDeleteTest = () => {
     if (testToDelete && !isReadOnly) {
-      if (testToDelete.type === 'lecture') {
-        setTestRecords(prev => { const copy = { ...prev }; delete copy[testToDelete.id]; return copy; });
-      } else {
-        setIndividualTestRecords(prev => { const copy = { ...prev }; delete copy[testToDelete.id]; return copy; });
-      }
-      setTestToDelete(null);
-      showToast('테스트 기록이 삭제되었습니다.');
+      if (testToDelete.type === 'lecture') { setTestRecords(prev => { const copy = { ...prev }; delete copy[testToDelete.id]; return copy; }); } 
+      else { setIndividualTestRecords(prev => { const copy = { ...prev }; delete copy[testToDelete.id]; return copy; }); }
+      setTestToDelete(null); showToast('삭제됨.');
     }
   };
-
- const handleLectureScoreChange = (testId, studentId, field, value) => {
+  const handleLectureScoreChange = (testId, studentId, field, value) => {
     if (isReadOnly) return;
-    const numericValue = value === '' ? '' : Number(value);
-    const testData = testRecords[testId];
-    const totalQ = Number(testData.totalQ);
-
+    const numericValue = value === '' ? '' : Number(value); const testData = testRecords[testId]; const totalQ = Number(testData.totalQ);
     setTestRecords(prev => {
-      const prevScores = prev[testId].scores[studentId] || {score: '', retest: ''};
-      let newScores = { ...prevScores, [field]: numericValue };
-
+      const prevScores = prev[testId].scores[studentId] || {score: '', retest: ''}; let newScores = { ...prevScores, [field]: numericValue };
       if (numericValue !== '' && totalQ > 0 && numericValue > totalQ) {
-        const errorKey = `${testId}_${studentId}_${field}`;
-        setTestErrors(e => ({ ...e, [errorKey]: true }));
-        setTimeout(() => setTestErrors(e => ({ ...e, [errorKey]: false })), 2500);
-        newScores[field] = ''; 
-      } else if (field === 'score' && numericValue !== '' && totalQ > 0) {
-        if (numericValue / totalQ >= 0.8) newScores.retest = ''; 
-      }
+        const errorKey = `${testId}_${studentId}_${field}`; setTestErrors(e => ({ ...e, [errorKey]: true })); setTimeout(() => setTestErrors(e => ({ ...e, [errorKey]: false })), 2500); newScores[field] = ''; 
+      } else if (field === 'score' && numericValue !== '' && totalQ > 0) { if (numericValue / totalQ >= 0.8) newScores.retest = ''; }
       return { ...prev, [testId]: { ...prev[testId], scores: { ...prev[testId].scores, [studentId]: newScores } } };
     });
   };
-
   const calculateTestAverage = (testId) => {
-    const testData = testRecords[testId];
-    if (!testData) return 0;
-    let totalScore = 0, count = 0;
+    const testData = testRecords[testId]; if (!testData) return 0; let totalScore = 0, count = 0;
     visibleStudents.filter(s => s.classId === testData.classId).forEach(s => {
       const r = testData.scores[s.id];
-      if (r && r.score !== '') {
-        totalScore += (r.retest !== '' && r.retest !== undefined) ? Number(r.retest) : Number(r.score);
-        count++;
-      }
+      if (r && r.score !== '') { totalScore += (r.retest !== '' && r.retest !== undefined) ? Number(r.retest) : Number(r.score); count++; }
     });
     return count === 0 ? 0 : (totalScore / count).toFixed(1);
   };
-
   const handleExportCSV = () => {
     if (!testClassId) return;
     const selectedClass = classes.find(c => c.id === testClassId);
-    
     let csvContent = "\uFEFF시험날짜,테스트과정,총문제,";
     const classStds = visibleStudents.filter(s => s.classId === testClassId).sort((a, b) => a.name.localeCompare(b.name, 'ko-KR'));
-    
-    classStds.forEach(s => { csvContent += `${s.name}(점수),${s.name}(재시),`; });
-    csvContent += "전체평균\n";
-
-    if (selectedClass?.type === 'individual') {
-      showToast("개별진도반은 현재 CSV 다운로드 기능을 지원하지 않습니다. (추후 업데이트 예정)", "error");
-      return;
-    }
-
+    classStds.forEach(s => { csvContent += `${s.name}(점수),${s.name}(재시),`; }); csvContent += "전체평균\n";
+    if (selectedClass?.type === 'individual') { showToast("개별진도반 불가.", "error"); return; }
     const tests = Object.values(testRecords).filter(t => t.classId === testClassId).sort((a, b) => a.date.localeCompare(b.date));
     tests.forEach(test => {
       csvContent += `${test.date},${test.subject},${test.totalQ},`;
-      classStds.forEach(s => {
-        const score = test.scores[s.id] || {score: '', retest: ''};
-        csvContent += `${score.score},${score.retest},`;
-      });
+      classStds.forEach(s => { const score = test.scores[s.id] || {score: '', retest: ''}; csvContent += `${score.score},${score.retest},`; });
       csvContent += `${calculateTestAverage(test.id)}\n`;
     });
-
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = `주간테스트결과_${selectedClass?.name || '데이터'}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' }); const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = `결과.csv`;
+    document.body.appendChild(link); link.click(); document.body.removeChild(link);
   };
 
-  // --- 개별반(개인) 테스트 로직 ---
   const handleAddIndivTestRow = () => {
     if (isReadOnly || !testClassId || !selectedIndivStudent) return;
     const newId = 'itest_' + Date.now();
     setIndividualTestRecords(prev => ({ ...prev, [newId]: { id: newId, classId: testClassId, studentId: selectedIndivStudent, date: getTodayLocal(), subject: '', totalQ: '', score: '', retest: '' } }));
   };
-
   const handleIndivTestChange = (testId, field, value) => {
     if (isReadOnly) return;
-    const isNumField = field === 'totalQ' || field === 'score' || field === 'retest';
-    const finalVal = isNumField ? (value === '' ? '' : Number(value)) : value;
-
+    const isNumField = field === 'totalQ' || field === 'score' || field === 'retest'; const finalVal = isNumField ? (value === '' ? '' : Number(value)) : value;
     setIndividualTestRecords(prev => {
-      const testData = prev[testId];
-      const totalQ = Number(testData.totalQ);
-      let newRecord = { ...testData, [field]: finalVal };
-
+      const testData = prev[testId]; const totalQ = Number(testData.totalQ); let newRecord = { ...testData, [field]: finalVal };
       if ((field === 'score' || field === 'retest') && finalVal !== '') {
-          if (totalQ > 0 && finalVal > totalQ) {
-              const errorKey = `${testId}_${field}`;
-              setTestErrors(e => ({ ...e, [errorKey]: true }));
-              setTimeout(() => setTestErrors(e => ({ ...e, [errorKey]: false })), 2500);
-              newRecord[field] = ''; 
-          } else if (field === 'score') {
-              if (totalQ > 0 && (finalVal / totalQ) >= 0.8) newRecord.retest = '';
-          }
+          if (totalQ > 0 && finalVal > totalQ) { const errorKey = `${testId}_${field}`; setTestErrors(e => ({ ...e, [errorKey]: true })); setTimeout(() => setTestErrors(e => ({ ...e, [errorKey]: false })), 2500); newRecord[field] = ''; } 
+          else if (field === 'score') { if (totalQ > 0 && (finalVal / totalQ) >= 0.8) newRecord.retest = ''; }
       }
       return { ...prev, [testId]: newRecord };
     });
   };
 
-  // --- 결석/지각 자동 멘트 생성 ---
   const getAutoAttendanceRemark = (studentId) => {
     let remarks = [];
     Object.entries(records).sort(([a], [b]) => a.localeCompare(b)).forEach(([d, recordObj]) => {
       if (d >= reportStartDate && d <= reportEndDate && recordObj[studentId]) {
         const r = recordObj[studentId].remark || '';
         if (r.includes('결석') || r.includes('지각')) {
-           const [, m, day] = d.split('-');
-           const dateObj = new Date(d);
-           const dayStr = DAYS.find(x => x.val === dateObj.getDay())?.label || '';
+           const [, m, day] = d.split('-'); const dateObj = new Date(d); const dayStr = DAYS.find(x => x.val === dateObj.getDay())?.label || '';
            const formattedDate = `${m}-${day}(${dayStr})`;
-           
            if (r.includes('결석')) remarks.push(`${formattedDate} 결석`);
            if (r.includes('지각')) remarks.push(`${formattedDate} 지각`);
         }
@@ -697,38 +466,24 @@ function MainApp({ role, user, setRole, teacherId }) {
     return remarks.length > 0 ? remarks.join(', ') : '';
   };
 
-  // --- 리포트 생성 로직 ---
   const buildReportText = (mainTpl, itemTpl, noTestMsg, stdName, avgProg, weekProg, remark, testDataArr) => {
     let testStr = '';
     if (testDataArr && testDataArr.length > 0) {
       testStr = testDataArr.map(t => {
         let str = itemTpl;
-        str = str.replace(/\[단원명\]/g, t.subject || '미기재');
-        str = str.replace(/\[맞은개수\]/g, t.score);
-        str = str.replace(/\[총문제수\]/g, t.totalQ || '?');
-        str = str.replace(/\[통과여부\]/g, t.isPass ? '통과' : '불통과');
-        str = str.replace(/\[반평균\]/g, t.classAvg || ''); 
-        return str;
+        str = str.replace(/\[단원명\]/g, t.subject || '미기재'); str = str.replace(/\[맞은개수\]/g, t.score); str = str.replace(/\[총문제수\]/g, t.totalQ || '?');
+        str = str.replace(/\[통과여부\]/g, t.isPass ? '통과' : '불통과'); str = str.replace(/\[반평균\]/g, t.classAvg || ''); return str;
       }).join('\n\n'); 
-    } else {
-      testStr = noTestMsg;
-    }
-
+    } else { testStr = noTestMsg; }
     let report = mainTpl;
-    report = report.replace(/\[학생이름\]/g, stdName);
-    report = report.replace(/\[과제성취도\]/g, avgProg);
-    report = report.replace(/\[주간진도\]/g, weekProg || '기재되지 않음');
-    report = report.replace(/\[비고\]/g, remark || '없음');
-    report = report.replace(/\[테스트결과목록\]/g, testStr); 
-    
-    return report.trim();
+    report = report.replace(/\[학생이름\]/g, stdName); report = report.replace(/\[과제성취도\]/g, avgProg);
+    report = report.replace(/\[주간진도\]/g, weekProg || '기재되지 않음'); report = report.replace(/\[비고\]/g, remark || '없음');
+    report = report.replace(/\[테스트결과목록\]/g, testStr); return report.trim();
   };
 
   const getDynamicBasicReport = (student) => {
-    const stdClass = classes.find(c => c.id === student.classId);
-    const isIndiv = stdClass?.type === 'individual';
-    const tests = [];
-    let currentItemTpl = testItemTemplate;
+    const stdClass = classes.find(c => c.id === student.classId); const isIndiv = stdClass?.type === 'individual';
+    const tests = []; let currentItemTpl = testItemTemplate;
     const currentWeeklyProgress = isIndiv ? (individualWeeklyProgress[student.id] || '') : (classWeeklyProgress[student.classId] || '');
 
     if (isIndiv) {
@@ -756,26 +511,16 @@ function MainApp({ role, user, setRole, teacherId }) {
 
     const stdRecords = Object.values(records).filter((_, i) => Object.keys(records)[i] >= reportStartDate && Object.keys(records)[i] <= reportEndDate).map(d => d[student.id]).filter(r => r && r.progress !== undefined);
     const avgProgress = stdRecords.length > 0 ? Math.round(stdRecords.reduce((sum, r) => sum + r.progress, 0) / stdRecords.length) : 0;
-    
-    const autoRemark = getAutoAttendanceRemark(student.id);
-    const manualRemark = reportRemarks[student.id] !== undefined ? reportRemarks[student.id] : autoRemark;
-    
+    const autoRemark = getAutoAttendanceRemark(student.id); const manualRemark = reportRemarks[student.id] !== undefined ? reportRemarks[student.id] : autoRemark;
     return buildReportText(offlineTemplate, currentItemTpl, noTestMessage, student.name, avgProgress, currentWeeklyProgress, manualRemark, tests);
   };
 
   const handleCopy = (text, studentId, progress) => {
-    if (!progress || progress.trim() === '') {
-      showToast('⚠️ 주간 진도를 입력해야 복사할 수 있습니다.', 'error');
-      return;
-    }
-    
+    if (!progress || progress.trim() === '') { showToast('⚠️ 주간 진도를 입력해야 복사할 수 있습니다.', 'error'); return; }
     try {
       const ta = document.createElement("textarea"); ta.value = text; document.body.appendChild(ta); ta.select(); document.execCommand("copy"); ta.remove();
-      setCopiedId(studentId);
-      setTimeout(() => setCopiedId(null), 2000);
-    } catch (err) {
-      showToast('복사 실패', 'error');
-    }
+      setCopiedId(studentId); setTimeout(() => setCopiedId(null), 2000);
+    } catch (err) { showToast('복사 실패', 'error'); }
   };
 
   const renderSortIcon = (key) => {
@@ -783,23 +528,12 @@ function MainApp({ role, user, setRole, teacherId }) {
     return sortConfig.direction === 'asc' ? <ArrowUp size={14} className="text-blue-600" /> : <ArrowDown size={14} className="text-blue-600" />;
   };
 
-  const restoreDefaultTemplates = () => {
-    setOfflineTemplate(DEFAULT_TEMPLATE);
-    setTestItemTemplate(DEFAULT_TEST_ITEM_TEMPLATE);
-    setNoTestMessage(DEFAULT_NO_TEST_MSG);
-    showToast('모든 템플릿이 기본값으로 초기화되었습니다.');
-  };
-
   if (!isLoaded) return <div className="min-h-screen flex items-center justify-center"><Loader2 className="animate-spin text-blue-500" size={32}/></div>;
 
   return (
     <div className={`min-h-screen p-4 md:p-8 font-sans relative ${isReadOnly ? 'bg-emerald-50' : 'bg-gray-50'}`}>
-      <style>{`
-        input[type="number"]::-webkit-outer-spin-button, input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
-        input[type="number"] { -moz-appearance: textfield; }
-      `}</style>
+      <style>{`input[type="number"]::-webkit-outer-spin-button, input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; } input[type="number"] { -moz-appearance: textfield; }`}</style>
 
-      {/* --- 공통 토스트 알림 컴포넌트 --- */}
       {toast && (
         <div className={`fixed top-6 right-6 z-[100] px-5 py-3 rounded-lg shadow-xl font-bold text-sm flex items-center gap-2 transition-all ${toast.type === 'error' ? 'bg-red-600 text-white' : 'bg-gray-800 text-white'}`}>
           <Check size={16} className={toast.type === 'error' ? 'hidden' : 'block'} />
@@ -808,69 +542,42 @@ function MainApp({ role, user, setRole, teacherId }) {
         </div>
       )}
 
-      {/* --- 반 삭제 경고 모달 --- */}
       {classDeleteWarning && !isReadOnly && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-[60]">
           <div className="bg-white p-6 rounded-xl shadow-2xl max-w-sm w-full mx-4">
-            <div className="flex items-center gap-3 text-orange-600 mb-4">
-              <AlertCircle size={24} />
-              <h3 className="text-lg font-bold text-gray-900">삭제 불가</h3>
-            </div>
+            <div className="flex items-center gap-3 text-orange-600 mb-4"><AlertCircle size={24} /><h3 className="text-lg font-bold text-gray-900">삭제 불가</h3></div>
             <p className="text-gray-600 mb-6">⚠️ 소속된 학생이 있습니다.<br/>학생을 모두 삭제하거나 다른 반으로 이동시켜야 반을 삭제할 수 있습니다.</p>
-            <div className="flex justify-end">
-              <button onClick={() => setClassDeleteWarning(false)} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 font-medium">확인</button>
-            </div>
+            <div className="flex justify-end"><button onClick={() => setClassDeleteWarning(false)} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 font-medium">확인</button></div>
           </div>
         </div>
       )}
 
-      {/* --- 반 삭제 확인 모달 --- */}
       {classToDelete && !isReadOnly && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-[60]">
           <div className="bg-white p-6 rounded-xl shadow-2xl max-w-sm w-full mx-4">
-            <div className="flex items-center gap-3 text-red-600 mb-4">
-              <AlertCircle size={24} />
-              <h3 className="text-lg font-bold text-gray-900">반 삭제 확인</h3>
-            </div>
+            <div className="flex items-center gap-3 text-red-600 mb-4"><AlertCircle size={24} /><h3 className="text-lg font-bold text-gray-900">반 삭제 확인</h3></div>
             <p className="text-gray-600 mb-6">정말 이 반을 삭제하시겠습니까?<br/>이 작업은 되돌릴 수 없습니다.</p>
-            <div className="flex justify-end gap-3">
-              <button onClick={() => setClassToDelete(null)} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 font-medium">취소</button>
-              <button onClick={confirmDeleteClass} className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 font-medium shadow-sm">삭제하기</button>
-            </div>
+            <div className="flex justify-end gap-3"><button onClick={() => setClassToDelete(null)} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 font-medium">취소</button><button onClick={confirmDeleteClass} className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 font-medium shadow-sm">삭제하기</button></div>
           </div>
         </div>
       )}
 
-      {/* --- 학생 삭제 확인 모달 --- */}
       {studentToDelete && !isReadOnly && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-[60]">
           <div className="bg-white p-6 rounded-xl shadow-2xl max-w-sm w-full mx-4">
-            <div className="flex items-center gap-3 text-red-600 mb-4">
-              <AlertCircle size={24} />
-              <h3 className="text-lg font-bold text-gray-900">학생 삭제 확인</h3>
-            </div>
+            <div className="flex items-center gap-3 text-red-600 mb-4"><AlertCircle size={24} /><h3 className="text-lg font-bold text-gray-900">학생 삭제 확인</h3></div>
             <p className="text-gray-600 mb-6">정말로 이 학생을 삭제하시겠습니까?<br/>모든 데이터가 함께 삭제됩니다.</p>
-            <div className="flex justify-end gap-3">
-              <button onClick={() => setStudentToDelete(null)} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg font-medium">취소</button>
-              <button onClick={confirmDeleteStudent} className="px-4 py-2 bg-red-600 text-white rounded-lg font-medium shadow-sm">삭제하기</button>
-            </div>
+            <div className="flex justify-end gap-3"><button onClick={() => setStudentToDelete(null)} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg font-medium">취소</button><button onClick={confirmDeleteStudent} className="px-4 py-2 bg-red-600 text-white rounded-lg font-medium shadow-sm">삭제하기</button></div>
           </div>
         </div>
       )}
 
-      {/* --- 테스트 기록 삭제 확인 모달 --- */}
       {testToDelete && !isReadOnly && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-[60]">
           <div className="bg-white p-6 rounded-xl shadow-2xl max-w-sm w-full mx-4">
-            <div className="flex items-center gap-3 text-red-600 mb-4">
-              <AlertCircle size={24} />
-              <h3 className="text-lg font-bold text-gray-900">테스트 삭제 확인</h3>
-            </div>
+            <div className="flex items-center gap-3 text-red-600 mb-4"><AlertCircle size={24} /><h3 className="text-lg font-bold text-gray-900">테스트 삭제 확인</h3></div>
             <p className="text-gray-600 mb-6">이 테스트 기록을 완전히 삭제하시겠습니까?</p>
-            <div className="flex justify-end gap-3">
-              <button onClick={() => setTestToDelete(null)} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg font-medium">취소</button>
-              <button onClick={confirmDeleteTest} className="px-4 py-2 bg-red-600 text-white rounded-lg font-medium shadow-sm">삭제하기</button>
-            </div>
+            <div className="flex justify-end gap-3"><button onClick={() => setTestToDelete(null)} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg font-medium">취소</button><button onClick={confirmDeleteTest} className="px-4 py-2 bg-red-600 text-white rounded-lg font-medium shadow-sm">삭제하기</button></div>
           </div>
         </div>
       )}
@@ -881,7 +588,7 @@ function MainApp({ role, user, setRole, teacherId }) {
             <h1 className="text-2xl font-bold flex items-center gap-2"><BookOpen className="text-blue-600"/> 임팩트수학 통합관리</h1>
             <span className="text-xs text-gray-500">{role === 'admin' ? '👑 관리자' : role === 'office' ? '🏢 행정팀' : '👨‍🏫 강사'} 계정 접속중</span>
           </div>
-          <button onClick={() => { setRole(null); localStorage.removeItem('userRole'); localStorage.removeItem('teacherId'); }} className="flex items-center gap-1 text-sm text-gray-500 hover:text-red-500 font-bold"><LogOut size={16}/> 로그아웃</button>
+          <button onClick={() => { setRole(null); localStorage.removeItem('userRole'); localStorage.removeItem('teacherId'); window.location.reload(); }} className="flex items-center gap-1 text-sm text-gray-500 hover:text-red-500 font-bold"><LogOut size={16}/> 로그아웃</button>
         </header>
 
         {isReadOnly && (
@@ -1045,7 +752,7 @@ function MainApp({ role, user, setRole, teacherId }) {
             </div>
           )}
 
-          {/* 학생 관리 (통합 검색 및 권한 필터 추가 적용) */}
+          {/* 학생 관리 */}
           {activeTab === 'students' && (
             <div>
               {!isReadOnly && (
@@ -1059,7 +766,7 @@ function MainApp({ role, user, setRole, teacherId }) {
                 </div>
               )}
               
-              {/* 관리자/행정팀용 강사 필터 드롭다운 및 통합 검색창 */}
+              {/* 관리자/행정팀용 강사 필터 드롭다운 */}
               <div className="mb-4 flex flex-col sm:flex-row gap-3">
                 {(role === 'admin' || role === 'office') && (
                   <div className="flex items-center gap-2 bg-white p-2.5 rounded-lg border border-gray-200 shadow-sm w-fit">
@@ -1073,17 +780,10 @@ function MainApp({ role, user, setRole, teacherId }) {
                 
                 <div className="flex items-center gap-2 bg-white p-2.5 rounded-lg border border-gray-200 shadow-sm flex-1 max-w-sm">
                   <span className="text-sm font-bold text-gray-700 ml-1">🔍 학생 검색:</span>
-                  <input 
-                    type="text" 
-                    value={searchKeyword} 
-                    onChange={e => setSearchKeyword(e.target.value)} 
-                    placeholder="이름을 입력하세요..." 
-                    className="border border-gray-300 rounded p-1 text-sm focus:ring-2 focus:ring-blue-500 outline-none flex-1"
-                  />
+                  <input type="text" value={searchKeyword} onChange={e => setSearchKeyword(e.target.value)} placeholder="이름 검색..." className="border border-gray-300 rounded p-1 text-sm focus:ring-2 focus:ring-blue-500 outline-none flex-1" />
                 </div>
               </div>
 
-              {/* 검색 결과가 0명일 때 나타나는 경고창 */}
               {searchKeyword.trim() !== '' && getSortedStudentsForManagement().length === 0 && (
                 <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-center text-red-600 font-bold shadow-sm">
                   입력하신 "{searchKeyword}" 학생은 존재하지 않거나 현재 담당 권한이 없습니다.
@@ -1137,7 +837,7 @@ function MainApp({ role, user, setRole, teacherId }) {
                         </tr>
                       )
                     })}
-                    {visibleStudents.length === 0 && <tr><td colSpan="4" className="text-center p-8 text-gray-500">등록된 학생이 없습니다.</td></tr>}
+                    {visibleStudents.length === 0 && <tr><td colSpan="5" className="text-center p-8 text-gray-500">등록된 학생이 없습니다.</td></tr>}
                   </tbody>
                 </table>
               </div>
@@ -1315,10 +1015,10 @@ function MainApp({ role, user, setRole, teacherId }) {
             </div>
           )}
 
-          {/* 주간 테스트 (강사 필터 및 네이밍 규칙 적용 완료) */}
+          {/* 주간 테스트 */}
           {activeTab === 'tests' && (
             <div>
-              <div className="flex flex-col sm:flex-row sm:items-end gap-4 mb-6 bg-purple-50 p-4 rounded-lg border border-purple-100">
+              <div className="flex flex-wrap gap-4 items-end mb-6 bg-purple-50 p-4 rounded-lg border border-purple-100">
                 {(role === 'admin' || role === 'office') && (
                   <div className="w-full sm:w-48">
                     <label className="block text-xs font-bold text-purple-900 mb-1">👨‍🏫 강사 선택</label>
@@ -1357,7 +1057,6 @@ function MainApp({ role, user, setRole, teacherId }) {
                   const classStds = visibleStudents.filter(s => s.classId === testClassId).sort((a,b)=>a.name.localeCompare(b.name, 'ko-KR'));
 
                   if (isIndividual) {
-                    // --- 개별반 렌더링 로직 ---
                     if (classStds.length === 0) return <div className="text-center p-8 text-gray-500">학생을 먼저 추가해주세요.</div>;
                     if (!selectedIndivStudent && classStds.length > 0) setSelectedIndivStudent(classStds[0].id);
 
@@ -1436,7 +1135,6 @@ function MainApp({ role, user, setRole, teacherId }) {
                       </div>
                     );
                   } else {
-                    // --- 판서반(공통) 렌더링 로직 ---
                     return (
                       <div className="border border-gray-200 rounded-xl shadow-sm overflow-x-auto bg-white">
                         <table className="w-full text-center min-w-max border-collapse">
@@ -1510,7 +1208,7 @@ function MainApp({ role, user, setRole, teacherId }) {
             </div>
           )}
 
-          {/* 주간 리포트 (강사 필터 및 네이밍 규칙 적용 완료) */}
+          {/* 주간 리포트 */}
           {activeTab === 'report' && (
             <div className="space-y-6 pointer-events-auto">
               <div className="bg-gradient-to-r from-blue-50 border border-blue-100 to-indigo-50 p-6 rounded-xl mb-8 shadow-sm">
@@ -1528,38 +1226,19 @@ function MainApp({ role, user, setRole, teacherId }) {
                     {(role === 'admin' || role === 'office') && (
                       <div className="w-full sm:w-48">
                         <label className="block text-xs font-bold text-gray-500 mb-1">👨‍🏫 강사 선택</label>
-                        <select
-                          value={reportInstructorId}
-                          onChange={(e) => {
-                            setReportInstructorId(e.target.value);
-                            setReportClassId(''); // 강사 변경 시 반 선택 안전하게 초기화
-                          }}
-                          className="w-full border border-gray-300 rounded p-2 focus:ring-2 focus:ring-blue-500 outline-none text-sm font-bold text-gray-700 bg-white"
-                        >
+                        <select value={reportInstructorId} onChange={(e) => { setReportInstructorId(e.target.value); setReportClassId(''); }} className="w-full border border-gray-300 rounded p-2 focus:ring-2 focus:ring-blue-500 outline-none text-sm font-bold text-gray-700 bg-white">
                           <option value="">전체 강사</option>
-                          {instructors.map(inst => (
-                            <option key={inst.id} value={inst.id}>{inst.name} 선생님</option>
-                          ))}
+                          {instructors.map(inst => <option key={inst.id} value={inst.id}>{inst.name} 선생님</option>)}
                         </select>
                       </div>
                     )}
                     <div className="flex-1 w-full max-w-sm">
                       <label className="block text-xs font-bold text-gray-500 mb-1">🏫 대상 반 선택</label>
-                      <select 
-                        value={reportClassId} 
-                        onChange={e => setReportClassId(e.target.value)} 
-                        className="w-full border border-gray-300 rounded p-2 focus:ring-2 focus:ring-blue-500 outline-none text-sm font-bold text-gray-700 bg-white"
-                      >
+                      <select value={reportClassId} onChange={e => setReportClassId(e.target.value)} className="w-full border border-gray-300 rounded p-2 focus:ring-2 focus:ring-blue-500 outline-none text-sm font-bold text-gray-700 bg-white">
                         <option value="">반을 선택해주세요...</option>
-                        {visibleClasses
-                          .filter(c => (role === 'admin' || role === 'office') && reportInstructorId ? c.instructorId === reportInstructorId : true)
-                          .map(c => {
+                        {visibleClasses.filter(c => (role === 'admin' || role === 'office') && reportInstructorId ? c.instructorId === reportInstructorId : true).map(c => {
                             const instName = instructors.find(i => i.id === c.instructorId)?.name || '미지정';
-                            return (
-                              <option key={c.id} value={c.id}>
-                                {c.name} ({c.type==='individual'?'개별':'판서'}) {(role === 'admin' || role === 'office') ? `(${instName} T)` : ''}
-                              </option>
-                            );
+                            return <option key={c.id} value={c.id}>{c.name} ({c.type==='individual'?'개별':'판서'}) {(role === 'admin' || role === 'office') ? `(${instName} T)` : ''}</option>
                         })}
                       </select>
                     </div>
@@ -1579,15 +1258,12 @@ function MainApp({ role, user, setRole, teacherId }) {
                     const isExcluded = excludeFromReport[student.id] || false;
                     const autoRemark = getAutoAttendanceRemark(student.id);
                     const manualRemark = reportRemarks[student.id] !== undefined ? reportRemarks[student.id] : autoRemark;
-                    
                     const currentReportText = getDynamicBasicReport(student);
-
                     const stdClass = visibleClasses.find(c => c.id === student.classId);
                     const currentWeeklyProgress = stdClass?.type === 'individual' ? individualWeeklyProgress[student.id] : classWeeklyProgress[student.classId];
 
                     return (
                       <div key={student.id} className="border border-gray-300 rounded-xl p-5 bg-white shadow-sm flex flex-col gap-4 relative overflow-hidden">
-                        
                         <div className="flex justify-between items-center border-b border-gray-100 pb-3 relative z-20">
                           <div className="font-bold text-lg text-gray-900">{student.name} <span className="text-sm font-normal text-gray-500">({student.school})</span></div>
                           <div className="flex gap-2">
@@ -1598,7 +1274,6 @@ function MainApp({ role, user, setRole, teacherId }) {
                         </div>
                         
                         <div className={`flex flex-col flex-1 gap-3 relative z-10 transition-all ${isExcluded ? 'opacity-30 grayscale pointer-events-none select-none' : ''}`}>
-                          
                           <div>
                             {visibleClasses.find(c => c.id === student.classId)?.type === 'individual' && (
                               <input type="text" value={individualWeeklyProgress[student.id] || ''} onChange={(e) => {if(!isReadOnly) setIndividualWeeklyProgress(prev => ({...prev, [student.id]: e.target.value}))}} readOnly={isReadOnly} placeholder="학생 개별 주간 진도 입력" className={`w-full border border-gray-300 rounded-md p-3 text-sm focus:ring-2 focus:ring-indigo-500 outline-none mb-3 ${isReadOnly ? 'bg-gray-50' : 'bg-indigo-50/50'}`} />
@@ -1619,9 +1294,7 @@ function MainApp({ role, user, setRole, teacherId }) {
 
                         {isExcluded && (
                           <div className="absolute inset-0 flex items-center justify-center z-30 pointer-events-none mt-10">
-                            <div className="bg-red-600 text-white px-6 py-3 rounded-xl font-bold shadow-lg opacity-90 text-lg flex items-center gap-2">
-                              <X size={20}/> 전송 제외된 학생입니다
-                            </div>
+                            <div className="bg-red-600 text-white px-6 py-3 rounded-xl font-bold shadow-lg opacity-90 text-lg flex items-center gap-2"><X size={20}/> 전송 제외된 학생입니다</div>
                           </div>
                         )}
                       </div>
@@ -1635,24 +1308,11 @@ function MainApp({ role, user, setRole, teacherId }) {
           {/* 설정 (분리된 컴포넌트 호출) */}
           {activeTab === 'settings' && !isReadOnly && (
             <SettingsTab 
-              isReadOnly={isReadOnly}
-              role={role}
-              handleExportAllDataToJSON={handleExportAllDataToJSON}
-              handleBackupToGoogleDrive={handleBackupToGoogleDrive}
-              isDriveSyncing={isDriveSyncing}
-              setTestRecords={setTestRecords}
-              setIndividualTestRecords={setIndividualTestRecords}
-              db={db}
-              appId={appId}
-              systemSettings={systemSettings}
-              setSystemSettings={setSystemSettings}
-              restoreDefaultTemplates={restoreDefaultTemplates}
-              offlineTemplate={offlineTemplate}
-              setOfflineTemplate={setOfflineTemplate}
-              testItemTemplate={testItemTemplate}
-              setTestItemTemplate={setTestItemTemplate}
-              noTestMessage={noTestMessage}
-              setNoTestMessage={setNoTestMessage}
+              isReadOnly={isReadOnly} role={role} handleExportAllDataToJSON={handleExportAllDataToJSON} handleBackupToGoogleDrive={handleBackupToGoogleDrive}
+              isDriveSyncing={isDriveSyncing} setTestRecords={setTestRecords} setIndividualTestRecords={setIndividualTestRecords}
+              db={db} appId={appId} systemSettings={systemSettings} setSystemSettings={setSystemSettings} restoreDefaultTemplates={restoreDefaultTemplates}
+              offlineTemplate={offlineTemplate} setOfflineTemplate={setOfflineTemplate} testItemTemplate={testItemTemplate}
+              setTestItemTemplate={setTestItemTemplate} noTestMessage={noTestMessage} setNoTestMessage={setNoTestMessage}
             />
           )}
           {/* 설정 탭 끝 */}
