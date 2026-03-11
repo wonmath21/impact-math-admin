@@ -249,24 +249,43 @@ function MainApp({ role, user, setRole, teacherId }) {
   };
 
   // DB 로드 및 에러 방지 (무한 로딩 100% 차단 로직)
+  // ==========================================
+  // [강력 방어벽 1] 인간 개입 잠금 장치 & 원본 스냅샷
+  // ==========================================
+  const isUserInteraction = useRef(false);
+  const initialDataSnapshot = useRef({});
+
+  useEffect(() => {
+    const unlockSync = () => { isUserInteraction.current = true; };
+    window.addEventListener('mousedown', unlockSync, { once: true });
+    window.addEventListener('keydown', unlockSync, { once: true });
+    window.addEventListener('touchstart', unlockSync, { once: true });
+    return () => {
+      window.removeEventListener('mousedown', unlockSync);
+      window.removeEventListener('keydown', unlockSync);
+      window.removeEventListener('touchstart', unlockSync);
+    };
+  }, []);
+
+  // ==========================================
+  // [강력 방어벽 2] DB 로드 (안전하게 끝날 때까지 대기)
+  // ==========================================
   useEffect(() => {
     let isMounted = true;
-
-    // 만약 서버 통신이 실패하거나 권한이 없어도 2.5초 뒤에는 무조건 화면을 엽니다.
-    const fallbackTimer = setTimeout(() => {
-      if (isMounted) setIsLoaded(true);
-    }, 2500);
 
     const fetchDb = async () => {
       try {
         const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'academy', 'mainData');
         const docSnap = await getDoc(docRef);
         if (!isMounted) return;
+        
         if (docSnap.exists()) {
           const d = docSnap.data();
+          initialDataSnapshot.current = JSON.parse(JSON.stringify(d)); // 원본 박제
+
           if(d.instructors) setInstructors(d.instructors);
-          if(d.classes && d.classes.length > 0) setClasses(d.classes);
-          if(d.students && d.students.length > 0) setStudents(d.students);
+          if(d.classes) setClasses(d.classes);
+          if(d.students) setStudents(d.students);
           if(d.records) setRecords(d.records);
           if(d.testRecords) setTestRecords(d.testRecords);
           if(d.individualTestRecords) setIndividualTestRecords(d.individualTestRecords);
@@ -279,54 +298,51 @@ function MainApp({ role, user, setRole, teacherId }) {
           if(d.noTestMessage) setNoTestMessage(d.noTestMessage);
           if(d.systemSettings) setSystemSettings(d.systemSettings);
         }
-        setIsLoaded(true);
-        clearTimeout(fallbackTimer);
       } catch (e) {
-        if (isMounted) setIsLoaded(true);
-        clearTimeout(fallbackTimer);
+        console.error("DB Fetch Error:", e);
+      } finally {
+        if (isMounted) setIsLoaded(true); 
       }
     };
-
     fetchDb();
+    return () => { isMounted = false; };
+  }, []); 
 
-    return () => {
-      isMounted = false;
-      clearTimeout(fallbackTimer);
-    };
-  }, []); // 의존성 배열을 비워 한 번만 실행되도록 고정
-
-  // 데이터 동기화
+  // ==========================================
+  // [강력 방어벽 3] 스마트 데이터 동기화 (조건부 저장)
+  // ==========================================
   const syncData = async (key, value) => {
-    if (!isLoaded || isReadOnly) return;
+    // 인간 개입이 없거나 로딩 전이면 통과 금지
+    if (!isLoaded || isReadOnly || !isUserInteraction.current) return;
+
+    // 초기 빈 데이터가 원본을 덮어씌우는 것 원천 차단
+    if (JSON.stringify(initialDataSnapshot.current[key]) === JSON.stringify(value)) return; 
+
     const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'academy', 'mainData');
-    
     try {
-      // 기존 병합(merge: true) 방식 대신, 해당 항목을 통째로 덮어쓰는(Overwite) 강력한 업데이트 적용 (유령 데이터 완전 삭제 가능)
       await updateDoc(docRef, { [key]: value });
+      initialDataSnapshot.current[key] = JSON.parse(JSON.stringify(value));
     } catch (error) {
-      // 만약 DB가 아예 비어있어서 업데이트할 대상이 없다면, 최초 생성(setDoc) 실행
-      if (error.code === 'not-found') {
-        await setDoc(docRef, { [key]: value });
-      } else {
-        console.warn("Firebase 저장 에러:", error);
-      }
+      if (error.code === 'not-found') { await setDoc(docRef, { [key]: value }); }
+      else { console.error("Firebase 저장 에러:", error); }
     }
   };
 
-  useEffect(() => { if(isLoaded) syncData('instructors', instructors); }, [instructors, isLoaded]);
-  useEffect(() => { if(isLoaded) syncData('classes', classes); }, [classes, isLoaded]);
-  useEffect(() => { if(isLoaded) syncData('students', students); }, [students, isLoaded]);
-  useEffect(() => { if(isLoaded) syncData('records', records); }, [records, isLoaded]);
-  useEffect(() => { if(isLoaded) syncData('testRecords', testRecords); }, [testRecords, isLoaded]);
-  useEffect(() => { if(isLoaded) syncData('individualTestRecords', individualTestRecords); }, [individualTestRecords, isLoaded]);
-  useEffect(() => { if(isLoaded) syncData('classWeeklyProgress', classWeeklyProgress); }, [classWeeklyProgress, isLoaded]);
-  useEffect(() => { if(isLoaded) syncData('individualWeeklyProgress', individualWeeklyProgress); }, [individualWeeklyProgress, isLoaded]);
-  useEffect(() => { if(isLoaded) syncData('reportRemarks', reportRemarks); }, [reportRemarks, isLoaded]);
-  useEffect(() => { if(isLoaded) syncData('excludeFromReport', excludeFromReport); }, [excludeFromReport, isLoaded]);
-  useEffect(() => { if(isLoaded) syncData('offlineTemplate', offlineTemplate); }, [offlineTemplate, isLoaded]);
-  useEffect(() => { if(isLoaded) syncData('testItemTemplate', testItemTemplate); }, [testItemTemplate, isLoaded]);
-  useEffect(() => { if(isLoaded) syncData('noTestMessage', noTestMessage); }, [noTestMessage, isLoaded]);
-  useEffect(() => { if(isLoaded) syncData('systemSettings', systemSettings); }, [systemSettings, isLoaded]);
+  // (isLoaded 의존성 제거됨)
+  useEffect(() => { syncData('instructors', instructors); }, [instructors]);
+  useEffect(() => { syncData('classes', classes); }, [classes]);
+  useEffect(() => { syncData('students', students); }, [students]);
+  useEffect(() => { syncData('records', records); }, [records]);
+  useEffect(() => { syncData('testRecords', testRecords); }, [testRecords]);
+  useEffect(() => { syncData('individualTestRecords', individualTestRecords); }, [individualTestRecords]);
+  useEffect(() => { syncData('classWeeklyProgress', classWeeklyProgress); }, [classWeeklyProgress]);
+  useEffect(() => { syncData('individualWeeklyProgress', individualWeeklyProgress); }, [individualWeeklyProgress]);
+  useEffect(() => { syncData('reportRemarks', reportRemarks); }, [reportRemarks]);
+  useEffect(() => { syncData('excludeFromReport', excludeFromReport); }, [excludeFromReport]);
+  useEffect(() => { syncData('offlineTemplate', offlineTemplate); }, [offlineTemplate]);
+  useEffect(() => { syncData('testItemTemplate', testItemTemplate); }, [testItemTemplate]);
+  useEffect(() => { syncData('noTestMessage', noTestMessage); }, [noTestMessage]);
+  useEffect(() => { syncData('systemSettings', systemSettings); }, [systemSettings]);
 
   // 브라우저 탭 제목 및 아이콘 실시간 반영 로직
   useEffect(() => {
