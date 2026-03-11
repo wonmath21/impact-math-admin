@@ -1,7 +1,7 @@
 /* eslint-disable no-undef */
 /* eslint-disable no-unused-vars */
 import React, { useState, useEffect, useRef } from 'react';
-import { Users, BookOpen, Calendar, Plus, Trash2, Edit2, Check, X, AlertCircle, Sparkles, Copy, Loader2, FileText, Download, Settings, ArrowUp, ArrowDown, ArrowUpDown, RefreshCcw, LogOut, Lock, UserCog, ClipboardList, Eye } from 'lucide-react';
+import { Users, BookOpen, Calendar, Plus, Trash2, Edit2, Check, X, AlertCircle, Sparkles, Copy, Loader2, FileText, Download, Settings, ArrowUp, ArrowDown, ArrowUpDown, RefreshCcw, LogOut, Lock, UserCog, ClipboardList, Eye, Upload } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
 import { getFirestore, doc, setDoc, getDoc, updateDoc } from 'firebase/firestore';
@@ -187,7 +187,6 @@ function MainApp({ role, user, setRole, teacherId }) {
   const [isLoaded, setIsLoaded] = useState(false);
   const [activeTab, setActiveTab] = useState(() => localStorage.getItem('activeTab') || 'daily');
 
-  // 탭이 바뀔 때마다 브라우저에 현재 탭 저장
   useEffect(() => {
     localStorage.setItem('activeTab', activeTab);
   }, [activeTab]);
@@ -212,7 +211,6 @@ function MainApp({ role, user, setRole, teacherId }) {
   const [excludeFromReport, setExcludeFromReport] = useState(() => loadData('excludeFromReport', {})); 
   const [classWeeklyProgress, setClassWeeklyProgress] = useState({});
   const [individualWeeklyProgress, setIndividualWeeklyProgress] = useState({});
-  // 시스템 제목/아이콘 및 강사 필터 상태 추가
   const [systemSettings, setSystemSettings] = useState(() => loadData('systemSettings', { title: '임팩트 수학학원', iconUrl: '' }));
   const [filterInstructor, setFilterInstructor] = useState('');
 
@@ -230,7 +228,6 @@ function MainApp({ role, user, setRole, teacherId }) {
   const [viewMode, setViewMode] = useState('daily');
   const [sortConfig, setSortConfig] = useState({ key: 'name', direction: 'asc' });
 
-  // 커스텀 모달 및 알림 상태 
   const [toast, setToast] = useState(null);
   const [classToDelete, setClassToDelete] = useState(null);
   const [classDeleteWarning, setClassDeleteWarning] = useState(false);
@@ -248,10 +245,6 @@ function MainApp({ role, user, setRole, teacherId }) {
     setTimeout(() => setToast(null), 3000); 
   };
 
-  // DB 로드 및 에러 방지 (무한 로딩 100% 차단 로직)
-  // ==========================================
-  // [강력 방어벽 1] 인간 개입 잠금 장치 & 원본 스냅샷
-  // ==========================================
   const isUserInteraction = useRef(false);
   const initialDataSnapshot = useRef({});
 
@@ -267,9 +260,6 @@ function MainApp({ role, user, setRole, teacherId }) {
     };
   }, []);
 
-  // ==========================================
-  // [강력 방어벽 2] DB 로드 (안전하게 끝날 때까지 대기)
-  // ==========================================
   useEffect(() => {
     let isMounted = true;
 
@@ -281,7 +271,7 @@ function MainApp({ role, user, setRole, teacherId }) {
         
         if (docSnap.exists()) {
           const d = docSnap.data();
-          initialDataSnapshot.current = JSON.parse(JSON.stringify(d)); // 원본 박제
+          initialDataSnapshot.current = JSON.parse(JSON.stringify(d));
 
           if(d.instructors) setInstructors(d.instructors);
           if(d.classes) setClasses(d.classes);
@@ -308,14 +298,8 @@ function MainApp({ role, user, setRole, teacherId }) {
     return () => { isMounted = false; };
   }, []); 
 
-  // ==========================================
-  // [강력 방어벽 3] 스마트 데이터 동기화 (조건부 저장)
-  // ==========================================
   const syncData = async (key, value) => {
-    // 인간 개입이 없거나 로딩 전이면 통과 금지
     if (!isLoaded || isReadOnly || !isUserInteraction.current) return;
-
-    // 초기 빈 데이터가 원본을 덮어씌우는 것 원천 차단
     if (JSON.stringify(initialDataSnapshot.current[key]) === JSON.stringify(value)) return; 
 
     const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'academy', 'mainData');
@@ -328,7 +312,6 @@ function MainApp({ role, user, setRole, teacherId }) {
     }
   };
 
-  // (isLoaded 의존성 제거됨)
   useEffect(() => { syncData('instructors', instructors); }, [instructors]);
   useEffect(() => { syncData('classes', classes); }, [classes]);
   useEffect(() => { syncData('students', students); }, [students]);
@@ -354,17 +337,66 @@ function MainApp({ role, user, setRole, teacherId }) {
     const link = document.createElement('a');
     link.href = url;
     
-    // 한국 시간 기준 파일명 생성
     const offset = new Date().getTimezoneOffset() * 60000;
     const dateOffset = new Date(Date.now() - offset);
     const todayLocal = dateOffset.toISOString().split("T")[0];
+    const timeLocal = dateOffset.toISOString().split("T")[1].replace(/:/g, '').substring(0, 6);
     
-    link.download = `임팩트수학_전체백업_${todayLocal}.json`;
+    link.download = `학원데이터_백업_${todayLocal}_${timeLocal}.json`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
     showToast('전체 데이터 백업 파일이 PC에 다운로드되었습니다.');
+  };
+
+  // ==========================================
+  // ★★★ [복구 기능] JSON 백업 파일로 전체 데이터 복원 ★★★
+  // ==========================================
+  const handleImportFromJSON = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      try {
+        const data = JSON.parse(evt.target.result);
+
+        if (!window.confirm(
+          `📂 "${file.name}" 파일로 복구합니다.\n\n⚠️ 현재 서버의 모든 데이터가 이 파일로 덮어씌워집니다.\n정말 진행하시겠습니까?`
+        )) return;
+
+        // 1) React 상태 즉시 반영 (화면에 바로 표시됨)
+        if (data.instructors) setInstructors(data.instructors);
+        if (data.classes) setClasses(data.classes);
+        if (data.students) setStudents(data.students);
+        if (data.records) setRecords(data.records);
+        if (data.testRecords) setTestRecords(data.testRecords);
+        if (data.individualTestRecords) setIndividualTestRecords(data.individualTestRecords);
+        if (data.classWeeklyProgress) setClassWeeklyProgress(data.classWeeklyProgress);
+        if (data.individualWeeklyProgress) setIndividualWeeklyProgress(data.individualWeeklyProgress);
+        if (data.reportRemarks) setReportRemarks(data.reportRemarks);
+        if (data.excludeFromReport) setExcludeFromReport(data.excludeFromReport);
+        if (data.offlineTemplate) setOfflineTemplate(data.offlineTemplate);
+        if (data.testItemTemplate) setTestItemTemplate(data.testItemTemplate);
+        if (data.noTestMessage) setNoTestMessage(data.noTestMessage);
+        if (data.systemSettings) setSystemSettings(data.systemSettings);
+
+        // 2) Firebase에 직접 덮어쓰기 (syncData 방어벽을 우회하여 확실하게 저장)
+        const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'academy', 'mainData');
+        await setDoc(docRef, data);
+
+        // 3) 스냅샷도 갱신 (이후 syncData가 중복 저장하지 않도록)
+        initialDataSnapshot.current = JSON.parse(JSON.stringify(data));
+
+        showToast('✅ 백업 데이터가 성공적으로 복구되었습니다!');
+      } catch (err) {
+        showToast('❌ JSON 파일 형식이 올바르지 않습니다.', 'error');
+        console.error(err);
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = ''; // 같은 파일을 다시 선택할 수 있도록 초기화
   };
 
   // ==========================================
@@ -375,7 +407,6 @@ function MainApp({ role, user, setRole, teacherId }) {
     setIsDriveSyncing(true);
     const allData = { instructors, classes, students, records, testRecords, individualTestRecords, classWeeklyProgress, individualWeeklyProgress, reportRemarks, excludeFromReport, offlineTemplate, testItemTemplate, noTestMessage, systemSettings };
     
-    // ★ 주의: 아래 따옴표 안에 아까 발급받은 '구글 앱스 스크립트 웹 앱 URL'을 반드시 붙여넣으세요!
     const googleScriptUrl = "https://script.google.com/macros/s/AKfycbyWkX3PJ-7IXIu7zAmd1TaUGqS32jHqhQfEqmrp3P8txkqUARXr6EDfsR0CL8-9S3c3/exec"; 
 
     try {
@@ -398,7 +429,6 @@ function MainApp({ role, user, setRole, teacherId }) {
     }
   };
   
-  // 브라우저 탭 제목 및 아이콘 실시간 반영 로직
   useEffect(() => {
     document.title = systemSettings.title || '임팩트 수학학원';
     if (systemSettings.iconUrl) {
@@ -546,7 +576,6 @@ function MainApp({ role, user, setRole, teacherId }) {
   };
 
   const getSortedStudentsForManagement = () => {
-    // 1. 강사 필터 적용 (관리자/행정팀 전용)
     let filtered = [...visibleStudents];
     if ((role === 'admin' || role === 'office') && filterInstructor) {
       filtered = filtered.filter(s => {
@@ -554,13 +583,12 @@ function MainApp({ role, user, setRole, teacherId }) {
         return cls && cls.instructorId === filterInstructor;
       });
     }
-    // 2. 정렬 적용
     return filtered.sort((a, b) => {
       let aVal = a[sortConfig.key]; let bVal = b[sortConfig.key];
       if (sortConfig.key === 'classId') {
         aVal = classes.find(c => c.id === a.classId)?.name || ''; bVal = classes.find(c => c.id === b.classId)?.name || '';
       }
-      if (sortConfig.key === 'instructorId') { // 강사별 정렬 추가
+      if (sortConfig.key === 'instructorId') {
         const aInst = classes.find(c => c.id === a.classId)?.instructorId || '';
         const bInst = classes.find(c => c.id === b.classId)?.instructorId || '';
         aVal = instructors.find(i => i.id === aInst)?.name || '';
@@ -782,7 +810,7 @@ function MainApp({ role, user, setRole, teacherId }) {
     });
   };
 
-  // --- 결석/지각 자동 멘트 생성 (날짜만 단순 나열) ---
+  // --- 결석/지각 자동 멘트 생성 ---
   const getAutoAttendanceRemark = (studentId) => {
     let remarks = [];
     Object.entries(records).sort(([a], [b]) => a.localeCompare(b)).forEach(([d, recordObj]) => {
@@ -904,7 +932,6 @@ function MainApp({ role, user, setRole, teacherId }) {
         input[type="number"] { -moz-appearance: textfield; }
       `}</style>
 
-      {/* --- 공통 토스트 알림 컴포넌트 --- */}
       {toast && (
         <div className={`fixed top-6 right-6 z-[100] px-5 py-3 rounded-lg shadow-xl font-bold text-sm flex items-center gap-2 transition-all ${toast.type === 'error' ? 'bg-red-600 text-white' : 'bg-gray-800 text-white'}`}>
           <Check size={16} className={toast.type === 'error' ? 'hidden' : 'block'} />
@@ -913,7 +940,6 @@ function MainApp({ role, user, setRole, teacherId }) {
         </div>
       )}
 
-      {/* --- 반 삭제 경고 모달 (학생 존재시) --- */}
       {classDeleteWarning && !isReadOnly && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-[60]">
           <div className="bg-white p-6 rounded-xl shadow-2xl max-w-sm w-full mx-4">
@@ -929,7 +955,6 @@ function MainApp({ role, user, setRole, teacherId }) {
         </div>
       )}
 
-      {/* --- 반 삭제 확인 모달 (학생 0명) --- */}
       {classToDelete && !isReadOnly && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-[60]">
           <div className="bg-white p-6 rounded-xl shadow-2xl max-w-sm w-full mx-4">
@@ -946,7 +971,6 @@ function MainApp({ role, user, setRole, teacherId }) {
         </div>
       )}
 
-      {/* --- 학생 삭제 확인 모달 --- */}
       {studentToDelete && !isReadOnly && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-[60]">
           <div className="bg-white p-6 rounded-xl shadow-2xl max-w-sm w-full mx-4">
@@ -963,7 +987,6 @@ function MainApp({ role, user, setRole, teacherId }) {
         </div>
       )}
 
-      {/* --- 테스트 기록 삭제 확인 모달 --- */}
       {testToDelete && !isReadOnly && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-[60]">
           <div className="bg-white p-6 rounded-xl shadow-2xl max-w-sm w-full mx-4">
@@ -1164,7 +1187,6 @@ function MainApp({ role, user, setRole, teacherId }) {
                 </div>
               )}
               
-              {/* 관리자/행정팀용 강사 필터 드롭다운 */}
               {(role === 'admin' || role === 'office') && (
                 <div className="mb-4 flex items-center gap-2 bg-white p-3 rounded-lg border border-gray-200 shadow-sm w-fit">
                   <span className="text-sm font-bold text-gray-700">👨‍🏫 강사별 학생 보기:</span>
@@ -1427,7 +1449,6 @@ function MainApp({ role, user, setRole, teacherId }) {
                   const classStds = visibleStudents.filter(s => s.classId === testClassId).sort((a,b)=>a.name.localeCompare(b.name, 'ko-KR'));
 
                   if (isIndividual) {
-                    // --- 개별반 렌더링 로직 ---
                     if (classStds.length === 0) return <div className="text-center p-8 text-gray-500">학생을 먼저 추가해주세요.</div>;
                     if (!selectedIndivStudent && classStds.length > 0) setSelectedIndivStudent(classStds[0].id);
 
@@ -1506,7 +1527,6 @@ function MainApp({ role, user, setRole, teacherId }) {
                       </div>
                     );
                   } else {
-                    // --- 판서반(공통) 렌더링 로직 ---
                     return (
                       <div className="border border-gray-200 rounded-xl shadow-sm overflow-x-auto bg-white">
                         <table className="w-full text-center min-w-max border-collapse">
@@ -1672,7 +1692,6 @@ function MainApp({ role, user, setRole, teacherId }) {
           {activeTab === 'settings' && !isReadOnly && (
             <div className="max-w-3xl mx-auto space-y-6">
               
-              {/* 관리자 전용 브라우저 탭 설정 */}
               {role === 'admin' && (
                 <>
                   <div className="bg-red-50 p-6 rounded-xl border border-red-200 shadow-sm mb-6">
@@ -1685,28 +1704,38 @@ function MainApp({ role, user, setRole, teacherId }) {
                       }
                     }} className="bg-red-600 text-white px-4 py-2 rounded font-bold hover:bg-red-700 shadow-sm">유령 테스트 데이터 영구 삭제</button>
                   </div>
-            {/* 데이터 백업 기능 블록 */}
+
+                  {/* ★★★ 데이터 백업 & 복구 블록 (복구 버튼 추가됨) ★★★ */}
                   <div className="bg-green-50 p-6 rounded-xl border border-green-200 shadow-sm mb-6">
-                    <h3 className="text-lg font-bold text-green-900 mb-2 flex items-center gap-2"><Download size={20} /> 전체 시스템 데이터 백업</h3>
-                    <p className="text-sm text-green-700 mb-4">학원의 모든 데이터(강사, 반, 학생, 성적 등)를 백업합니다. PC 다운로드 또는 구글 드라이브 저장을 선택하세요.</p>
+                    <h3 className="text-lg font-bold text-green-900 mb-2 flex items-center gap-2"><Download size={20} /> 전체 시스템 데이터 백업 및 복구</h3>
+                    <p className="text-sm text-green-700 mb-4">학원의 모든 데이터(강사, 반, 학생, 성적 등)를 백업하거나, 이전 백업 파일로 복구합니다.</p>
                     <div className="flex flex-wrap gap-3">
+                      {/* 기존: PC 다운로드 버튼 */}
                       <button onClick={handleExportAllDataToJSON} className="bg-green-600 text-white px-4 py-2 rounded font-bold hover:bg-green-700 shadow-sm flex items-center gap-2 w-fit transition">
                         <Download size={18} /> PC로 파일 다운로드
                       </button>
+                      {/* 기존: 구글 드라이브 백업 버튼 */}
                       <button onClick={handleBackupToGoogleDrive} disabled={isDriveSyncing} className="bg-blue-600 text-white px-4 py-2 rounded font-bold hover:bg-blue-700 shadow-sm flex items-center gap-2 w-fit transition disabled:opacity-50">
                         {isDriveSyncing ? <Loader2 size={18} className="animate-spin"/> : <Sparkles size={18} />}
                         {isDriveSyncing ? '클라우드 전송 중...' : '구글 드라이브에 백업하기'}
                       </button>
+                      {/* ★ 신규: JSON 파일로 복구 버튼 */}
+                      <label className="bg-gray-700 text-white px-4 py-2 rounded font-bold hover:bg-gray-800 shadow-sm flex items-center gap-2 w-fit transition cursor-pointer">
+                        <Upload size={18} /> JSON 백업 파일로 복구하기
+                        <input type="file" accept=".json" onChange={handleImportFromJSON} className="hidden" />
+                      </label>
                     </div>
-                  </div>            
-                <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
-                  <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2"><Eye size={20} className="text-blue-500" /> 시스템 외관 설정 (관리자 전용)</h3>
-                  <div className="flex flex-col gap-4">
-                    <div>
-                      <label className="block text-sm font-bold text-gray-700 mb-1">브라우저 탭 이름 (Title)</label>
-                      <input type="text" value={systemSettings?.title || ''} onChange={(e) => setSystemSettings(prev => ({...prev, title: e.target.value}))} placeholder="예: 임팩트 수학학원" className="w-full border border-gray-300 rounded p-2 focus:ring-2 focus:ring-blue-500 outline-none text-sm bg-gray-50" />
-                    </div>
-                    <div>
+                    <p className="text-xs text-green-600 mt-3 font-medium">⚠️ 복구 시 현재 서버의 모든 데이터가 백업 파일 내용으로 덮어씌워집니다. 복구 전 반드시 최신 백업을 먼저 해두세요.</p>
+                  </div>
+                  
+                  <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                    <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2"><Eye size={20} className="text-blue-500" /> 시스템 외관 설정 (관리자 전용)</h3>
+                    <div className="flex flex-col gap-4">
+                      <div>
+                        <label className="block text-sm font-bold text-gray-700 mb-1">브라우저 탭 이름 (Title)</label>
+                        <input type="text" value={systemSettings?.title || ''} onChange={(e) => setSystemSettings(prev => ({...prev, title: e.target.value}))} placeholder="예: 임팩트 수학학원" className="w-full border border-gray-300 rounded p-2 focus:ring-2 focus:ring-blue-500 outline-none text-sm bg-gray-50" />
+                      </div>
+                      <div>
                         <label className="block text-sm font-bold text-gray-700 mb-1">브라우저 아이콘 (Favicon URL)</label>
                         <p className="text-[10px] text-gray-500 mb-1">인터넷에 올려진 이미지 주소(http://...)를 입력하세요. (.png, .ico 권장)</p>
                         <input type="text" value={systemSettings?.iconUrl || ''} onChange={(e) => setSystemSettings(prev => ({...prev, iconUrl: e.target.value}))} placeholder="예: https://example.com/icon.png" className="w-full border border-gray-300 rounded p-2 focus:ring-2 focus:ring-blue-500 outline-none text-sm bg-gray-50" />
