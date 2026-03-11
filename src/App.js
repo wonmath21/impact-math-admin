@@ -1568,75 +1568,6 @@ function MainApp({ role, user, setRole, teacherId }) {
                         </div>
                       </div>
                     );
-                  } else {
-                    // --- 판서반(공통) 렌더링 로직 ---
-                    return (
-                      <div className="border border-gray-200 rounded-xl shadow-sm overflow-x-auto bg-white">
-                        <table className="w-full text-center min-w-max border-collapse">
-                          <thead>
-                            <tr className="bg-purple-50 text-purple-900 text-sm font-bold border-b border-purple-200">
-                              <th className="p-3 border-r border-purple-100 w-32 sticky left-0 bg-purple-50 z-10 shadow-[1px_0_0_#e9d5ff] whitespace-nowrap">시험날짜</th>
-                              <th className="p-3 border-r border-purple-100 min-w-[150px] whitespace-nowrap">공통 과정명</th>
-                              <th className="p-3 border-r border-purple-100 w-16 whitespace-nowrap">총문항</th>
-                              {classStds.map(student => (
-                                <th key={student.id} colSpan="2" className="p-2 border-r border-purple-100 bg-purple-100/50">
-                                  <div className="text-sm">{student.name}</div><div className="text-[10px] font-normal text-purple-600">{student.school}</div>
-                                </th>
-                              ))}
-                              {!isReadOnly && <th className="p-3 border-l border-purple-100 bg-purple-50 w-12">삭제</th>}
-                            </tr>
-                            <tr className="bg-white text-xs text-gray-500 border-b border-gray-200">
-                              <th className="border-r border-gray-200 sticky left-0 bg-white z-10 shadow-[1px_0_0_#e5e7eb]"></th><th className="border-r border-gray-200"></th><th className="border-r border-gray-200"></th>
-                              {classStds.map(student => (<React.Fragment key={student.id + '_sub'}><th className="p-1.5 border-r border-gray-200 bg-gray-50">점수</th><th className="p-1.5 border-r border-gray-200 bg-gray-50">재시</th></React.Fragment>))}
-                              {!isReadOnly && <th></th>}
-                            </tr>
-                          </thead>
-                          <tbody className={`divide-y divide-gray-200 text-sm ${isReadOnly ? 'pointer-events-none' : ''}`}>
-                            {Object.values(testRecords).filter(t => t.classId === testClassId).sort((a, b) => a.date.localeCompare(b.date)).map(test => (
-                              <tr key={test.id} className="hover:bg-gray-50">
-                                <td className="p-2 border-r border-gray-200 sticky left-0 bg-white group-hover:bg-purple-50 z-10 shadow-[1px_0_0_#e5e7eb] align-middle relative cursor-pointer">
-                                  <input type="date" value={test.date} onChange={(e) => handleLectureTestChange(test.id, 'date', e.target.value)} onClick={(e) => { try { e.target.showPicker(); } catch(err){} }} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-20"/>
-                                  <div className="font-bold text-purple-800 text-center pointer-events-none relative z-10">{formatShortDate(test.date)}</div>
-                                </td>
-                                <td className="p-2 border-r border-gray-200 text-left align-middle">
-                                  <input type="text" value={test.subject} onChange={(e) => handleLectureTestChange(test.id, 'subject', e.target.value)} placeholder="단원명 입력" className="w-full text-sm outline-none bg-transparent focus:bg-white focus:ring-2 focus:ring-purple-500 rounded p-1.5 border border-transparent hover:border-purple-200"/>
-                                </td>
-                                <td className="p-2 border-r border-gray-200">
-                                  <input type="number" value={test.totalQ} onChange={(e) => handleLectureTestChange(test.id, 'totalQ', e.target.value)} className="w-full bg-transparent text-center outline-none font-bold focus:bg-white focus:ring-2 focus:ring-purple-300 rounded"/>
-                                </td>
-                                
-                                {classStds.map(student => {
-                                  const studentScore = test.scores[student.id] || { score: '', retest: '' };
-                                  const totalQNum = Number(test.totalQ);
-                                  const hasScore = studentScore.score !== '';
-                                  const isInitialPass = hasScore && totalQNum > 0 && (Number(studentScore.score) / totalQNum >= 0.8);
-                                  const hasRetest = studentScore.retest !== '';
-                                  const isRetestPass = hasRetest && totalQNum > 0 && (Number(studentScore.retest) / totalQNum >= 0.8);
-                                  
-                                  const scoreError = testErrors[`${test.id}_${student.id}_score`];
-                                  const retestError = testErrors[`${test.id}_${student.id}_retest`];
-
-                                  return (
-                                    <React.Fragment key={student.id + '_inputs'}>
-                                      <td className="p-1 border-r border-gray-200 relative align-top pt-2">
-                                        <input type="number" value={studentScore.score} onChange={(e) => handleLectureScoreChange(test.id, student.id, 'score', e.target.value)} className={`w-full max-w-[50px] mx-auto block text-center outline-none font-bold rounded p-1 ${scoreError ? 'bg-red-50 text-red-600 border border-red-500 placeholder-red-500 focus:ring-0' : 'text-blue-700 focus:bg-white focus:ring-2 focus:ring-purple-300'}`} placeholder={scoreError ? "범위초과" : ""} />
-                                        {hasScore && <div className={`text-[10px] font-bold text-center mt-1 ${isInitialPass?'text-green-600':'text-red-500'}`}>{isInitialPass?'통과':'미통과'}</div>}
-                                      </td>
-                                      <td className="p-1 border-r border-gray-200 relative align-top pt-2 bg-orange-50/30">
-                                        <input type="number" value={studentScore.retest} disabled={isInitialPass} onChange={(e) => handleLectureScoreChange(test.id, student.id, 'retest', e.target.value)} className={`w-full max-w-[50px] mx-auto block text-center outline-none font-bold rounded p-1 ${isInitialPass ? 'bg-gray-100 text-gray-400 cursor-not-allowed opacity-50' : retestError ? 'bg-red-50 text-red-600 border border-red-500 placeholder-red-500 focus:ring-0' : 'text-orange-600 focus:bg-white focus:ring-2 focus:ring-purple-300'}`} placeholder={retestError ? "범위초과" : ""} />
-                                        {hasScore && studentScore.retest !== '' && <div className={`text-[10px] font-bold text-center mt-1 ${isRetestPass?'text-green-600':'text-red-500'}`}>{isRetestPass?'통과':'미통과'}</div>}
-                                      </td>
-                                    </React.Fragment>
-                                  );
-                                })}
-                                {!isReadOnly && <td className="p-2 text-center"><button onClick={() => setTestToDelete({ id: test.id, type: 'lecture' })} className="text-gray-300 hover:text-red-500 p-1 rounded transition-colors"><Trash2 size={16} /></button></td>}
-                              </tr>
-                            ))}
-                            {Object.values(testRecords).filter(t => t.classId === testClassId).length === 0 && <tr><td colSpan={4 + classStds.length * 2} className="text-center py-10 text-gray-500">항목 추가 버튼을 눌러 테스트를 등록하세요.</td></tr>}
-                          </tbody>
-                        </table>
-                      </div>
-                    );
                   }
                 })()
               )}
@@ -1823,7 +1754,7 @@ function MainApp({ role, user, setRole, teacherId }) {
                 </>
               )}
 
-              {/* --- 3. 리포트 기본 양식 템플릿 설정 (이제 올바르게 설정 탭 내부에 존재합니다) --- */}
+              {/* --- 3. 리포트 기본 양식 템플릿 설정 --- */}
               <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
                 <h3 className="text-lg font-bold text-gray-900 mb-6 flex items-center gap-2"><Settings size={20} className="text-gray-500" /> 리포트 기본 양식 템플릿 설정</h3>
                 
