@@ -6,6 +6,7 @@ import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
 import { getFirestore, doc, setDoc, getDoc, updateDoc } from 'firebase/firestore';
 import SettingsTab from './components/SettingsTab'; // <--- 이 줄을 추가합니다.
+import { AcademyProvider, useAcademy } from './context/AcademyContext';
 
 // --- 1. Firebase 설정 ---
 let firebaseConfig;
@@ -179,175 +180,58 @@ export default function App() {
   };
 
   if (!role) return <LoginScreen onLogin={handleLogin} error={loginError} />;
-  return <MainApp role={role} user={user} setRole={setRole} teacherId={teacherId} />;
+  return (
+    <AcademyProvider db={db} appId={appId} user={user} isReadOnly={role === 'office'}>
+      <MainApp role={role} user={user} handleLogout={handleLogout} teacherId={teacherId} />
+    </AcademyProvider>
+  );
 }
 
 // --- 3. 메인 앱 컴포넌트 ---
 function MainApp({ role, user, setRole, teacherId }) {
   const isReadOnly = role === 'office';
-  const [isLoaded, setIsLoaded] = useState(false);
-  const [activeTab, setActiveTab] = useState(() => localStorage.getItem('activeTab') || 'daily');
-
-  // 탭이 바뀔 때마다 브라우저에 현재 탭 저장
-  useEffect(() => {
-    localStorage.setItem('activeTab', activeTab);
-  }, [activeTab]);
+  const [activeTab, setActiveTab] = useState('daily');
   
-  const loadData = (key, defaultData) => {
-    const saved = localStorage.getItem(key);
-    const parsed = saved ? JSON.parse(saved) : null;
-    if (!parsed || (Array.isArray(parsed) && parsed.length === 0) || (typeof parsed === 'object' && Object.keys(parsed).length === 0)) {
-      return defaultData;
-    }
-    return parsed;
-  };
+  // ★ 중앙 창고에서 모든 데이터와 함수를 한 번에 꺼내옵니다.
+  const {
+    isLoaded, instructors, setInstructors, classes, setClasses, students, setStudents,
+    records, setRecords, testRecords, setTestRecords, individualTestRecords, setIndividualTestRecords,
+    reportRemarks, setReportRemarks, excludeFromReport, setExcludeFromReport,
+    classWeeklyProgress, setClassWeeklyProgress, individualWeeklyProgress, setIndividualWeeklyProgress,
+    systemSettings, setSystemSettings, offlineTemplate, setOfflineTemplate,
+    testItemTemplate, setTestItemTemplate, noTestMessage, setNoTestMessage,
+    DEFAULT_TEMPLATE, DEFAULT_TEST_ITEM_TEMPLATE, DEFAULT_NO_TEST_MSG
+  } = useAcademy();
 
-  const [instructors, setInstructors] = useState(() => loadData('instructors', []));
-  const [classes, setClasses] = useState(() => loadData('classes', []));
-  const [students, setStudents] = useState(() => loadData('students', []));
-  const [records, setRecords] = useState(() => loadData('records', {}));
-  const [testRecords, setTestRecords] = useState(() => loadData('testRecords', {}));
-  const [individualTestRecords, setIndividualTestRecords] = useState(() => loadData('individualTestRecords', {}));
-
-  const [reportRemarks, setReportRemarks] = useState({});
-  const [excludeFromReport, setExcludeFromReport] = useState(() => loadData('excludeFromReport', {})); 
-  const [classWeeklyProgress, setClassWeeklyProgress] = useState({});
-  const [individualWeeklyProgress, setIndividualWeeklyProgress] = useState({});
-  
-  // 상태 변수 (검색 및 강사 필터용 추가 완료)
-  const [systemSettings, setSystemSettings] = useState(() => loadData('systemSettings', { title: '임팩트 수학학원', iconUrl: '' }));
-  const [filterInstructor, setFilterInstructor] = useState('');
-  const [searchKeyword, setSearchKeyword] = useState('');           // 학생 통합 검색어
-  const [testInstructorId, setTestInstructorId] = useState('');     // 테스트 탭 강사 필터
-  const [reportInstructorId, setReportInstructorId] = useState(''); // 리포트 탭 강사 필터
-
-  const [offlineTemplate, setOfflineTemplate] = useState(DEFAULT_TEMPLATE);
-  const [testItemTemplate, setTestItemTemplate] = useState(DEFAULT_TEST_ITEM_TEMPLATE);
-  const [noTestMessage, setNoTestMessage] = useState(DEFAULT_NO_TEST_MSG);
-
+  // 화면 UI 필터용 및 로컬 State (창고에 넣을 필요 없는 것들)
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
-  const [testClassId, setTestClassId] = useState('c1');
+  const [testClassId, setTestClassId] = useState('');
   const [testErrors, setTestErrors] = useState({}); 
   const [reportStartDate, setReportStartDate] = useState(weekDatesInit.start);
   const [reportEndDate, setReportEndDate] = useState(weekDatesInit.end);
-  const [reportClassId, setReportClassId] = useState('c1');
-  
+  const [reportClassId, setReportClassId] = useState('');
   const [viewMode, setViewMode] = useState('daily');
   const [sortConfig, setSortConfig] = useState({ key: 'name', direction: 'asc' });
 
-  // 커스텀 모달 및 알림 상태 
+  // 검색 및 강사 필터용 변수
+  const [filterInstructor, setFilterInstructor] = useState('');
+  const [searchKeyword, setSearchKeyword] = useState('');
+  const [testInstructorId, setTestInstructorId] = useState('');
+  const [reportInstructorId, setReportInstructorId] = useState('');
+
   const [toast, setToast] = useState(null);
   const [classToDelete, setClassToDelete] = useState(null);
   const [classDeleteWarning, setClassDeleteWarning] = useState(false);
   const [studentToDelete, setStudentToDelete] = useState(null);
   const [testToDelete, setTestToDelete] = useState(null);
-
   const [selectedIndivStudent, setSelectedIndivStudent] = useState(null);
   const [editingStudentId, setEditingStudentId] = useState(null);
   const [editStudentData, setEditStudentData] = useState({ name: '', school: '', classId: '' });
-
   const [copiedId, setCopiedId] = useState(null);
+  const [aiReports, setAiReports] = useState({});
+  const [isGenerating, setIsGenerating] = useState({});
 
-  const showToast = (message, type = 'success') => { 
-    setToast({ message, type });
-    setTimeout(() => setToast(null), 3000); 
-  };
-
-  // DB 로드 및 에러 방지 (무한 로딩 100% 차단 로직)
-  // ==========================================
-  // [강력 방어벽 1] 인간 개입 잠금 장치 & 원본 스냅샷
-  // ==========================================
-  const isUserInteraction = useRef(false);
-  const initialDataSnapshot = useRef({});
-
-  useEffect(() => {
-    const unlockSync = () => { isUserInteraction.current = true; };
-    window.addEventListener('mousedown', unlockSync, { once: true });
-    window.addEventListener('keydown', unlockSync, { once: true });
-    window.addEventListener('touchstart', unlockSync, { once: true });
-    return () => {
-      window.removeEventListener('mousedown', unlockSync);
-      window.removeEventListener('keydown', unlockSync);
-      window.removeEventListener('touchstart', unlockSync);
-    };
-  }, []);
-
-  // ==========================================
-  // [강력 방어벽 2] DB 로드 (안전하게 끝날 때까지 대기)
-  // ==========================================
-  useEffect(() => {
-    let isMounted = true;
-
-    const fetchDb = async () => {
-      try {
-        const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'academy', 'mainData');
-        const docSnap = await getDoc(docRef);
-        if (!isMounted) return;
-        
-        if (docSnap.exists()) {
-          const d = docSnap.data();
-          initialDataSnapshot.current = JSON.parse(JSON.stringify(d)); // 원본 박제
-
-          if(d.instructors) setInstructors(d.instructors);
-          if(d.classes) setClasses(d.classes);
-          if(d.students) setStudents(d.students);
-          if(d.records) setRecords(d.records);
-          if(d.testRecords) setTestRecords(d.testRecords);
-          if(d.individualTestRecords) setIndividualTestRecords(d.individualTestRecords);
-          if(d.classWeeklyProgress) setClassWeeklyProgress(d.classWeeklyProgress);
-          if(d.individualWeeklyProgress) setIndividualWeeklyProgress(d.individualWeeklyProgress);
-          if(d.reportRemarks) setReportRemarks(d.reportRemarks);
-          if(d.excludeFromReport) setExcludeFromReport(d.excludeFromReport);
-          if(d.offlineTemplate) setOfflineTemplate(d.offlineTemplate);
-          if(d.testItemTemplate) setTestItemTemplate(d.testItemTemplate);
-          if(d.noTestMessage) setNoTestMessage(d.noTestMessage);
-          if(d.systemSettings) setSystemSettings(d.systemSettings);
-        }
-      } catch (e) {
-        console.error("DB Fetch Error:", e);
-      } finally {
-        if (isMounted) setIsLoaded(true); 
-      }
-    };
-    fetchDb();
-    return () => { isMounted = false; };
-  }, []); 
-
-  // ==========================================
-  // [강력 방어벽 3] 스마트 데이터 동기화 (조건부 저장)
-  // ==========================================
-  const syncData = async (key, value) => {
-    // 인간 개입이 없거나 로딩 전이면 통과 금지
-    if (!isLoaded || isReadOnly || !isUserInteraction.current) return;
-
-    // 초기 빈 데이터가 원본을 덮어씌우는 것 원천 차단
-    if (JSON.stringify(initialDataSnapshot.current[key]) === JSON.stringify(value)) return; 
-
-    const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'academy', 'mainData');
-    try {
-      await updateDoc(docRef, { [key]: value });
-      initialDataSnapshot.current[key] = JSON.parse(JSON.stringify(value));
-    } catch (error) {
-      if (error.code === 'not-found') { await setDoc(docRef, { [key]: value }); }
-      else { console.error("Firebase 저장 에러:", error); }
-    }
-  };
-
-  // (isLoaded 의존성 제거됨)
-  useEffect(() => { syncData('instructors', instructors); }, [instructors]);
-  useEffect(() => { syncData('classes', classes); }, [classes]);
-  useEffect(() => { syncData('students', students); }, [students]);
-  useEffect(() => { syncData('records', records); }, [records]);
-  useEffect(() => { syncData('testRecords', testRecords); }, [testRecords]);
-  useEffect(() => { syncData('individualTestRecords', individualTestRecords); }, [individualTestRecords]);
-  useEffect(() => { syncData('classWeeklyProgress', classWeeklyProgress); }, [classWeeklyProgress]);
-  useEffect(() => { syncData('individualWeeklyProgress', individualWeeklyProgress); }, [individualWeeklyProgress]);
-  useEffect(() => { syncData('reportRemarks', reportRemarks); }, [reportRemarks]);
-  useEffect(() => { syncData('excludeFromReport', excludeFromReport); }, [excludeFromReport]);
-  useEffect(() => { syncData('offlineTemplate', offlineTemplate); }, [offlineTemplate]);
-  useEffect(() => { syncData('testItemTemplate', testItemTemplate); }, [testItemTemplate]);
-  useEffect(() => { syncData('noTestMessage', noTestMessage); }, [noTestMessage]);
-  useEffect(() => { syncData('systemSettings', systemSettings); }, [systemSettings]);
+  const showToast = (message, type = 'success') => { setToast({ message, type }); setTimeout(() => setToast(null), 3000); };
 
   // ==========================================
   // [백업 기능 1] 로컬 PC로 전체 데이터 다운로드 (JSON)
