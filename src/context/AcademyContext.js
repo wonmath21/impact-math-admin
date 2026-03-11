@@ -72,7 +72,10 @@ export const AcademyProvider = ({ children, db, appId, user, isReadOnly }) => {
   useEffect(() => {
     let isMounted = true;
     const fetchDb = async () => {
-      if (!user) return;
+      if (!user) {
+        if (isMounted) setIsLoaded(true); // 추가: 유저가 없어도 무한 로딩 해제
+        return;
+      }
       try {
         const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'academy', 'mainData');
         const docSnap = await getDoc(docRef);
