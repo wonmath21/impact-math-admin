@@ -378,12 +378,6 @@ function MainApp({ role, user, setRole, teacherId }) {
     // ★ 주의: 아래 따옴표 안에 아까 발급받은 '구글 앱스 스크립트 웹 앱 URL'을 반드시 붙여넣으세요!
     const googleScriptUrl = "https://script.google.com/macros/s/AKfycbyWkX3PJ-7IXIu7zAmd1TaUGqS32jHqhQfEqmrp3P8txkqUARXr6EDfsR0CL8-9S3c3/exec"; 
 
-    if (googleScriptUrl === "https://script.google.com/macros/s/AKfycbyWkX3PJ-7IXIu7zAmd1TaUGqS32jHqhQfEqmrp3P8txkqUARXr6EDfsR0CL8-9S3c3/exec") {
-      showToast('구글 드라이브 스크립트 URL이 아직 입력되지 않았습니다.', 'error');
-      setIsDriveSyncing(false);
-      return;
-    }
-
     try {
       const response = await fetch(googleScriptUrl, {
         method: "POST",
