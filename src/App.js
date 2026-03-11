@@ -344,6 +344,66 @@ function MainApp({ role, user, setRole, teacherId }) {
   useEffect(() => { syncData('noTestMessage', noTestMessage); }, [noTestMessage]);
   useEffect(() => { syncData('systemSettings', systemSettings); }, [systemSettings]);
 
+  // ==========================================
+  // [백업 기능 1] 로컬 PC로 전체 데이터 다운로드 (JSON)
+  // ==========================================
+  const handleExportAllDataToJSON = () => {
+    const allData = { instructors, classes, students, records, testRecords, individualTestRecords, classWeeklyProgress, individualWeeklyProgress, reportRemarks, excludeFromReport, offlineTemplate, testItemTemplate, noTestMessage, systemSettings };
+    const blob = new Blob([JSON.stringify(allData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    
+    // 한국 시간 기준 파일명 생성
+    const offset = new Date().getTimezoneOffset() * 60000;
+    const dateOffset = new Date(Date.now() - offset);
+    const todayLocal = dateOffset.toISOString().split("T")[0];
+    
+    link.download = `임팩트수학_전체백업_${todayLocal}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    showToast('전체 데이터 백업 파일이 PC에 다운로드되었습니다.');
+  };
+
+  // ==========================================
+  // [백업 기능 2] 구글 드라이브 클라우드 전송
+  // ==========================================
+  const [isDriveSyncing, setIsDriveSyncing] = useState(false);
+  const handleBackupToGoogleDrive = async () => {
+    setIsDriveSyncing(true);
+    const allData = { instructors, classes, students, records, testRecords, individualTestRecords, classWeeklyProgress, individualWeeklyProgress, reportRemarks, excludeFromReport, offlineTemplate, testItemTemplate, noTestMessage, systemSettings };
+    
+    // ★ 주의: 아래 따옴표 안에 아까 발급받은 '구글 앱스 스크립트 웹 앱 URL'을 반드시 붙여넣으세요!
+    const googleScriptUrl = "https://script.google.com/macros/s/AKfycbyWkX3PJ-7IXIu7zAmd1TaUGqS32jHqhQfEqmrp3P8txkqUARXr6EDfsR0CL8-9S3c3/exec"; 
+
+    if (googleScriptUrl === "https://script.google.com/macros/s/AKfycbyWkX3PJ-7IXIu7zAmd1TaUGqS32jHqhQfEqmrp3P8txkqUARXr6EDfsR0CL8-9S3c3/exec") {
+      showToast('구글 드라이브 스크립트 URL이 아직 입력되지 않았습니다.', 'error');
+      setIsDriveSyncing(false);
+      return;
+    }
+
+    try {
+      const response = await fetch(googleScriptUrl, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify(allData)
+      });
+      const result = await response.json();
+      if (result.status === "success") {
+        showToast('구글 드라이브에 안전하게 백업되었습니다!');
+      } else {
+        showToast('드라이브 백업 중 오류가 발생했습니다.', 'error');
+      }
+    } catch (error) {
+      showToast('네트워크 오류로 백업에 실패했습니다.', 'error');
+      console.error(error);
+    } finally {
+      setIsDriveSyncing(false);
+    }
+  };
+  
   // 브라우저 탭 제목 및 아이콘 실시간 반영 로직
   useEffect(() => {
     document.title = systemSettings.title || '임팩트 수학학원';
@@ -1631,6 +1691,20 @@ function MainApp({ role, user, setRole, teacherId }) {
                       }
                     }} className="bg-red-600 text-white px-4 py-2 rounded font-bold hover:bg-red-700 shadow-sm">유령 테스트 데이터 영구 삭제</button>
                   </div>
+            {/* 데이터 백업 기능 블록 */}
+                  <div className="bg-green-50 p-6 rounded-xl border border-green-200 shadow-sm mb-6">
+                    <h3 className="text-lg font-bold text-green-900 mb-2 flex items-center gap-2"><Download size={20} /> 전체 시스템 데이터 백업</h3>
+                    <p className="text-sm text-green-700 mb-4">학원의 모든 데이터(강사, 반, 학생, 성적 등)를 백업합니다. PC 다운로드 또는 구글 드라이브 저장을 선택하세요.</p>
+                    <div className="flex flex-wrap gap-3">
+                      <button onClick={handleExportAllDataToJSON} className="bg-green-600 text-white px-4 py-2 rounded font-bold hover:bg-green-700 shadow-sm flex items-center gap-2 w-fit transition">
+                        <Download size={18} /> PC로 파일 다운로드
+                      </button>
+                      <button onClick={handleBackupToGoogleDrive} disabled={isDriveSyncing} className="bg-blue-600 text-white px-4 py-2 rounded font-bold hover:bg-blue-700 shadow-sm flex items-center gap-2 w-fit transition disabled:opacity-50">
+                        {isDriveSyncing ? <Loader2 size={18} className="animate-spin"/> : <Sparkles size={18} />}
+                        {isDriveSyncing ? '클라우드 전송 중...' : '구글 드라이브에 백업하기'}
+                      </button>
+                    </div>
+                  </div>            
                 <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
                   <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2"><Eye size={20} className="text-blue-500" /> 시스템 외관 설정 (관리자 전용)</h3>
                   <div className="flex flex-col gap-4">
