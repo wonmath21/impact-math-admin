@@ -1,3 +1,6 @@
+//npm start//
+//npm build//
+
 /* eslint-disable no-undef */
 /* eslint-disable no-unused-vars */
 
@@ -1078,7 +1081,7 @@ function MainApp({ role, user, setRole, teacherId }) {
     }
 
     const stdRecords = Object.values(records).filter((_, i) => Object.keys(records)[i] >= reportStartDate && Object.keys(records)[i] <= reportEndDate).map(d => d[student.id]).filter(r => r && r.progress !== undefined);
-    const avgProgress = stdRecords.length > 0 ? Math.round(stdRecords.reduce((sum, r) => sum + r.progress, 0) / stdRecords.length) : 0;
+    const avgProgress = stdRecords.length > 0 ? Math.round(stdRecords.reduce((sum, r) => sum + r.progress, 0) / stdRecords.length) : 100;
     
     const autoRemark = getAutoAttendanceRemark(student.id);
     const manualRemark = reportRemarks[student.id] !== undefined ? reportRemarks[student.id] : autoRemark;
@@ -1213,7 +1216,7 @@ function MainApp({ role, user, setRole, teacherId }) {
         <header className="mb-6 flex justify-between items-center">
           <div className="flex flex-col">
             <h1 className="text-2xl font-bold flex items-center gap-2"><BookOpen className="text-blue-600"/> 임팩트수학 통합관리</h1>
-            <span className="text-xs text-gray-500">{role === 'admin' ? '👑 관리자' : role === 'office' ? '🏢 행정팀' : '👨‍🏫 강사'} 계정 접속중</span>
+            <span className="text-xs text-gray-500">{role === 'admin' ? '👑 관리자' : role === 'office' ? '🏢 행정팀' : `👨‍🏫 ${instructors.find(i => i.id === teacherId)?.name || '알 수 없는'} 강사`} 계정 접속중</span>
           </div>
           <button onClick={() => { setRole(null); localStorage.removeItem('userRole'); localStorage.removeItem('teacherId'); }} className="flex items-center gap-1 text-sm text-gray-500 hover:text-red-500 font-bold"><LogOut size={16}/> 로그아웃</button>
         </header>
@@ -1957,7 +1960,7 @@ function MainApp({ role, user, setRole, teacherId }) {
                         <Download size={18} /> PC로 파일 다운로드
                       </button>
                       {/* 기존: 구글 드라이브 백업 버튼 */}
-                      <button onClick={handleBackupToGoogleDrive} disabled={isDriveSyncing} className="bg-blue-600 text-white px-4 py-2 rounded font-bold hover:bg-blue-700 shadow-sm flex items-center gap-2 w-fit transition disabled:opacity-50">
+                      <button onClick={handleBackupToGoogleDrive} disabled={isDriveSyncing} className="bg-blue-600 text-white px-4 py-2 rounded font-bold hover:bg-blue-700 shadow-sm flex items-center justify-center gap-2 w-80 whitespace-nowrap transition disabled:opacity-50">
                         {isDriveSyncing ? <Loader2 size={18} className="animate-spin"/> : <Sparkles size={18} />}
                         {isDriveSyncing ? '클라우드 전송 중...' : '구글 드라이브에 백업하기'}
                       </button>
@@ -1985,6 +1988,18 @@ function MainApp({ role, user, setRole, teacherId }) {
                     </div>
                   </div>
                 </>
+              )}
+
+              {/* 강사용 구글 드라이브 백업 전용 블록 */}
+              {role === 'teacher' && (
+                <div className="bg-blue-50 p-6 rounded-xl border border-blue-200 shadow-sm mb-6">
+                  <h3 className="text-lg font-bold text-blue-900 mb-2 flex items-center gap-2"><Sparkles size={20} /> 구글 드라이브 백업</h3>
+                  <p className="text-sm text-blue-700 mb-4">현재까지의 학원 데이터를 클라우드에 안전하게 백업합니다.</p>
+                  <button onClick={handleBackupToGoogleDrive} disabled={isDriveSyncing} className="bg-blue-600 text-white px-4 py-2 rounded font-bold hover:bg-blue-700 shadow-sm flex items-center justify-center gap-2 w-80 whitespace-nowrap transition disabled:opacity-50">
+                    {isDriveSyncing ? <Loader2 size={18} className="animate-spin"/> : <Sparkles size={18} />}
+                    {isDriveSyncing ? '클라우드 전송 중...' : '구글 드라이브에 백업하기'}
+                  </button>
+                </div>
               )}
 
               <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
