@@ -1342,8 +1342,7 @@ function MainApp({ role, user, setRole, teacherId }) {
                           <label className="block text-[10px] font-bold text-gray-500 mb-1">요일 수정</label>
                           <div className="flex flex-wrap gap-1">
                             {DAYS.map(day => (
-                              <button key={day.val} onClick={() => setEditClassData(prev => ({...prev, days: prev.days.includes(day.val) ? prev.days.filter(d=>d!==day.val) : [...prev.days, day.val]}))} className={`text-xs px-2 py-1 rounded border transition-colors ${editClassData.days.includes(day.val) ? 'bg-blue-600 text-white border-blue-600' : 'bg-gray-100 text-gray-600 border-gray-200'}`}>{day.label}</button>
-                            ))}
+                              <button key={day.val} onClick={() => setEditClassData(prev => ({...prev, days: (prev.days || []).includes(day.val) ? (prev.days || []).filter(d=>d!==day.val) : [...(prev.days || []), day.val]}))} className={`text-xs px-2 py-1 rounded border transition-colors ${(editClassData.days || []).includes(day.val) ? 'bg-blue-600 text-white border-blue-600' : 'bg-gray-100 text-gray-600 border-gray-200'}`}>{day.label}</button>))}
                           </div>
                         </div>
                         {role === 'admin' && (
@@ -1369,7 +1368,7 @@ function MainApp({ role, user, setRole, teacherId }) {
                         <h4 className={`font-bold text-lg ${color.text}`}>{cls.name}</h4>
                         <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${cls.type === 'individual' ? 'bg-purple-100 text-purple-700 border-purple-200' : 'bg-gray-100 text-gray-600 border-gray-200'}`}>{cls.type === 'individual' ? '개별반' : '판서반'}</span>
                       </div>
-                      <div className="flex flex-wrap gap-1 mb-3">{cls.days.map(d => (<span key={d} className={`text-xs ${color.bg} ${color.text} px-2 py-1 rounded border ${color.border}`}>{DAYS.find(day => day.val === d)?.label}</span>))}</div>
+                      <div className="flex flex-wrap gap-1 mb-3">{(cls.days || []).map(d => (<span key={d} className={`text-xs ${color.bg} ${color.text} px-2 py-1 rounded border ${color.border}`}>{DAYS.find(day => day.val === d)?.label}</span>))}</div>
                       <div className="text-sm text-gray-500 flex items-center justify-between">
                         <span className="flex items-center gap-1"><Users size={14} /> {visibleStudents.filter(s => s.classId === cls.id).length}명</span>
                         {role === 'admin' && <span className="text-xs bg-gray-100 px-2 py-0.5 rounded text-gray-600 border font-medium">담당: {instructors.find(i => i.id === cls.instructorId)?.name || '미지정'}</span>}
