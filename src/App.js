@@ -1,3 +1,4 @@
+/* eslint-disable no-undef */
 /* eslint-disable no-unused-vars */
 
 // ╔══════════════════════════════════════════════════════════════════╗
@@ -44,7 +45,7 @@ import { getFirestore, doc, setDoc, getDoc, updateDoc } from 'firebase/firestore
 // [수정 포인트] Firebase 프로젝트를 바꿀 경우 userActualConfig 값만 교체
 let firebaseConfig;
 const userActualConfig = {
-  apiKey: "AIzaSyBe6DBEXLKaGyYFLLzYou6qmrOOZifNcEA",
+  apiKey: "AIzaSyBe6DBEXLKAgYYFLLzYoU6qmrOOZifNcEA",
   authDomain: "weekly-test-a0afd.firebaseapp.com",
   projectId: "weekly-test-a0afd",
   storageBucket: "weekly-test-a0afd.firebasestorage.app",
