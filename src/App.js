@@ -1,4 +1,3 @@
-/* eslint-disable no-undef */
 /* eslint-disable no-unused-vars */
 
 // ╔══════════════════════════════════════════════════════════════════╗
@@ -608,6 +607,7 @@ function MainApp({ role, user, setRole, teacherId }) {
   //   startEditingClass   - 반 수정 모드 시작
   //   saveEditedClass     - 반 수정 저장
   // ================================================================
+  const [newClassName, setNewClassName] = useState(''); // 이 줄을 추가하세요!
   const [newClassDays, setNewClassDays] = useState([]);
   const [newClassInstructor, setNewClassInstructor] = useState(''); 
   const [newClassType, setNewClassType] = useState('lecture'); 
