@@ -1,12 +1,48 @@
 /* eslint-disable no-undef */
 /* eslint-disable no-unused-vars */
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║         임팩트수학학원 통합 관리 시스템 (v2.1)                       ║
+// ║                                                                  ║
+// ║  [섹션 구성]                                                      ║
+// ║  SECTION 1  : Firebase 설정 + 공통 상수 + 유틸 함수 (약 line 1~110) ║
+// ║  SECTION 2  : 로그인 화면 컴포넌트 LoginScreen  (약 line 110~145)  ║
+// ║  SECTION 3  : 최상위 App 컴포넌트 + 로그인 처리  (약 line 145~185) ║
+// ║  SECTION 4  : MainApp - 전체 state 선언부        (약 line 185~250) ║
+// ║  SECTION 5  : Firebase 동기화 로직 (방어벽+syncData)(약 line 250~330)║
+// ║  SECTION 6  : 백업/복구 함수들                   (약 line 330~445) ║
+// ║  SECTION 7  : 강사 관리 함수들                   (약 line 445~540) ║
+// ║  SECTION 8  : 반(Class) 관리 함수들              (약 line 540~600) ║
+// ║  SECTION 9  : 학생 관리 함수들                   (약 line 600~680) ║
+// ║  SECTION 10 : 일일 출결/과제 함수들              (약 line 680~780) ║
+// ║  SECTION 11 : 주간 테스트 함수들                 (약 line 780~930) ║
+// ║  SECTION 12 : 리포트 생성 함수들                 (약 line 930~980) ║
+// ║  SECTION 13 : UI 렌더링 시작 (모달/토스트/탭)    (약 line 980~)    ║
+// ║  SECTION 14 : [탭] 강사 관리 UI                                   ║
+// ║  SECTION 15 : [탭] 반 관리 UI                                     ║
+// ║  SECTION 16 : [탭] 학생 관리 UI                                   ║
+// ║  SECTION 17 : [탭] 일일 출결 UI                                   ║
+// ║  SECTION 18 : [탭] 주간 테스트 UI                                 ║
+// ║  SECTION 19 : [탭] 주간 리포트 UI                                 ║
+// ║  SECTION 20 : [탭] 설정 UI                                        ║
+// ╚══════════════════════════════════════════════════════════════════╝
+
 import React, { useState, useEffect, useRef } from 'react';
 import { Users, BookOpen, Calendar, Plus, Trash2, Edit2, Check, X, AlertCircle, Sparkles, Copy, Loader2, FileText, Download, Settings, ArrowUp, ArrowDown, ArrowUpDown, RefreshCcw, LogOut, Lock, UserCog, ClipboardList, Eye, Upload } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
 import { getFirestore, doc, setDoc, getDoc, updateDoc } from 'firebase/firestore';
 
-// --- 1. Firebase 설정 ---
+// ================================================================
+// SECTION 1 : Firebase 설정 + 공통 상수 + 유틸 함수
+// ----------------------------------------------------------------
+// ⚠️ 이 섹션을 수정할 때: Firebase 키값, 요일/색상 상수,
+//    날짜 포맷 함수 등 전역에서 쓰이는 값들이 있습니다.
+//    함수명을 바꾸면 아래 모든 섹션에 영향을 줍니다.
+// ================================================================
+
+// --- Firebase 앱 초기화 ---
+// [수정 포인트] Firebase 프로젝트를 바꿀 경우 userActualConfig 값만 교체
 let firebaseConfig;
 const userActualConfig = {
   apiKey: "AIzaSyBe6DBEXLKaGyYFLLzYou6qmrOOZifNcEA",
@@ -28,7 +64,9 @@ const auth = getAuth(app);
 const db = getFirestore(app);
 const appId = typeof __app_id !== 'undefined' ? __app_id : 'impact-math-admin-app';
 
-// 공통 상수
+// --- 공통 상수 ---
+// [수정 포인트] 요일 순서나 표기를 바꾸려면 DAYS 배열 수정
+// [수정 포인트] 반 카드 색상을 추가/변경하려면 CLASS_COLORS 배열 수정
 const DAYS = [
   { val: 1, label: '월' }, { val: 2, label: '화' }, { val: 3, label: '수' },
   { val: 4, label: '목' }, { val: 5, label: '금' }, { val: 6, label: '토' }, { val: 0, label: '일' }
@@ -43,6 +81,7 @@ const CLASS_COLORS = [
   { bg: 'bg-cyan-50', text: 'text-cyan-800', border: 'border-cyan-200' },
 ];
 
+// [수정 포인트] 리포트 기본 양식 초기값 (설정 탭에서 UI로도 변경 가능)
 const DEFAULT_TEMPLATE = `안녕하세요. 임팩트수학학원 [학생이름]학생 담임입니다.\n\n주간 테스트 결과 및 성취도 안내드립니다.\n[테스트결과목록]\n과제물 성취도 : 평균 [과제성취도]%\n주간 진도 : [주간진도]\n\n비고 : [비고]`;
 const DEFAULT_TEST_ITEM_TEMPLATE = `테스트 과정 : [단원명]\n테스트 결과 : [맞은개수]/[총문제수] [통과여부]\n반 평균 : [반평균]`;
 const DEFAULT_NO_TEST_MSG = `이번 주 진행된 테스트가 없습니다.`;
@@ -95,7 +134,8 @@ const getSchoolColor = (schoolName) => {
   return colors[hash % colors.length];
 };
 
-// --- 자동 높이 조절 Textarea 컴포넌트 ---
+// --- 공통 UI 컴포넌트 ---
+// [수정 포인트] 텍스트 입력창 자동 높이 조절 컴포넌트 (여러 탭에서 재사용)
 const AutoResizeTextarea = ({ value, onChange, placeholder, className, disabled }) => {
   const textareaRef = useRef(null);
   useEffect(() => {
@@ -109,7 +149,12 @@ const AutoResizeTextarea = ({ value, onChange, placeholder, className, disabled 
   );
 };
 
-// --- 1. 로그인 화면 컴포넌트 ---
+// ================================================================
+// SECTION 2 : 로그인 화면 컴포넌트 (LoginScreen)
+// ----------------------------------------------------------------
+// [수정 포인트] 로그인 화면 디자인, 안내 문구 변경은 여기서
+// [수정 포인트] 접속 안내 문구 바꾸려면 이 컴포넌트 하단 ul 태그 수정
+// ================================================================
 function LoginScreen({ onLogin, error }) {
   const [id, setId] = useState('');
   const [pw, setPw] = useState('');
@@ -140,7 +185,13 @@ function LoginScreen({ onLogin, error }) {
   );
 }
 
-// --- 2. 최상위 App 컴포넌트 ---
+// ================================================================
+// SECTION 3 : 최상위 App 컴포넌트 + 로그인 처리
+// ----------------------------------------------------------------
+// [수정 포인트] 관리자/행정팀 계정 비밀번호 변경 → handleLogin 함수 내
+//              admin/office 고정값 부분 수정
+// [수정 포인트] 새 역할(role)을 추가하려면 handleLogin + MainApp 양쪽 수정
+// ================================================================
 export default function App() {
   const [user, setUser] = useState(null);
   const [role, setRole] = useState(() => localStorage.getItem('userRole') || null); 
@@ -181,7 +232,30 @@ export default function App() {
   return <MainApp role={role} user={user} setRole={setRole} teacherId={teacherId} />;
 }
 
-// --- 3. 메인 앱 컴포넌트 ---
+// ================================================================
+// SECTION 4 : MainApp - 전체 State(상태) 선언부
+// ----------------------------------------------------------------
+// ⚠️ 핵심 주의: 이 섹션은 앱 전체가 공유하는 데이터 창고입니다.
+//    새 데이터 항목이 필요하면 여기에 useState를 추가하고,
+//    SECTION 5의 syncData useEffect에도 반드시 한 줄 추가해야
+//    Firebase에 자동 저장됩니다.
+// ----------------------------------------------------------------
+// [State 목록]
+//   instructors       - 강사 목록
+//   classes           - 반 목록
+//   students          - 학생 목록
+//   records           - 일일 출결/과제 기록 { 날짜: { 학생id: {progress, remark} } }
+//   testRecords       - 판서반 테스트 기록
+//   individualTestRecords - 개별반 테스트 기록
+//   classWeeklyProgress   - 판서반 주간 진도
+//   individualWeeklyProgress - 개별반 학생별 진도
+//   reportRemarks     - 리포트 비고 (선생님 수동 입력)
+//   excludeFromReport - 리포트 전송 제외 여부
+//   offlineTemplate   - 리포트 전체 양식 템플릿
+//   testItemTemplate  - 테스트 결과 한 줄 양식
+//   noTestMessage     - 테스트 없을 때 문구
+//   systemSettings    - 브라우저 탭 이름/아이콘
+// ================================================================
 function MainApp({ role, user, setRole, teacherId }) {
   const isReadOnly = role === 'office';
   const [isLoaded, setIsLoaded] = useState(false);
@@ -245,6 +319,23 @@ function MainApp({ role, user, setRole, teacherId }) {
     setTimeout(() => setToast(null), 3000); 
   };
 
+  // ================================================================
+  // SECTION 5 : Firebase 동기화 로직 (데이터 방어벽 + syncData)
+  // ----------------------------------------------------------------
+  // ⚠️ 절대 건드리지 말 것: isUserInteraction, initialDataSnapshot
+  //    이 두 개가 "새로고침 시 데이터 날아가는 버그"를 막는 핵심입니다.
+  //
+  // [구조 설명]
+  //   1) isUserInteraction : 마우스/키보드 입력이 있어야만 저장 허용
+  //   2) fetchDb           : 앱 시작 시 Firebase에서 데이터 1회 로드
+  //   3) syncData          : state 변경 감지 → Firebase 자동 저장
+  //   4) useEffect 목록    : syncData를 트리거하는 감시자들
+  //
+  // [새 데이터 추가 시 체크리스트]
+  //   □ SECTION 4에 useState 추가
+  //   □ fetchDb 안에 if(d.새항목) set새항목(d.새항목) 추가
+  //   □ 아래 useEffect 목록에 syncData('새항목', 새항목) 추가
+  // ================================================================
   const isUserInteraction = useRef(false);
   const initialDataSnapshot = useRef({});
 
@@ -327,9 +418,21 @@ function MainApp({ role, user, setRole, teacherId }) {
   useEffect(() => { syncData('noTestMessage', noTestMessage); }, [noTestMessage]);
   useEffect(() => { syncData('systemSettings', systemSettings); }, [systemSettings]);
 
-  // ==========================================
+  // ================================================================
+  // SECTION 6 : 백업 / 복구 함수들
+  // ----------------------------------------------------------------
+  // [함수 목록]
+  //   handleExportAllDataToJSON  - PC로 JSON 파일 다운로드
+  //   handleImportFromJSON       - JSON 파일로 전체 데이터 복구
+  //   handleBackupToGoogleDrive  - 구글 드라이브로 백업 전송
+  //
+  // [수정 포인트] 구글 드라이브 연결 주소 변경 → googleScriptUrl 값 교체
+  // [수정 포인트] 백업 파일명 형식 변경 → link.download 값 수정
+  // ⚠️ handleImportFromJSON은 syncData를 우회해 setDoc으로 직접 저장함
+  //    (방어벽 때문에 일반 syncData로는 저장이 안 되기 때문)
+  // ================================================================
+
   // [백업 기능 1] 로컬 PC로 전체 데이터 다운로드 (JSON)
-  // ==========================================
   const handleExportAllDataToJSON = () => {
     const allData = { instructors, classes, students, records, testRecords, individualTestRecords, classWeeklyProgress, individualWeeklyProgress, reportRemarks, excludeFromReport, offlineTemplate, testItemTemplate, noTestMessage, systemSettings };
     const blob = new Blob([JSON.stringify(allData, null, 2)], { type: 'application/json' });
@@ -442,7 +545,17 @@ function MainApp({ role, user, setRole, teacherId }) {
     }
   }, [systemSettings]);
 
-  // --- 권한 및 필터링 ---
+  // ================================================================
+  // SECTION 7 : 강사 관리 함수들
+  // ----------------------------------------------------------------
+  // [함수 목록]
+  //   startEditingInst    - 강사 수정 모드 시작
+  //   saveEditedInst      - 강사 수정 저장
+  //   handleAddInstructor - 신규 강사 추가
+  //   handleDeleteInstructor - 강사 삭제 (배정된 반 있으면 삭제 차단)
+  // ================================================================
+
+  // --- 권한 및 필터링 (역할별 보이는 반/학생 범위 제한) ---
   const visibleClasses = role === 'teacher' ? classes.filter(c => c.instructorId === teacherId) : classes;
   const visibleStudents = role === 'teacher' ? students.filter(s => visibleClasses.some(c => c.id === s.classId)) : students;
 
@@ -484,7 +597,17 @@ function MainApp({ role, user, setRole, teacherId }) {
     }
   };
 
-  const [newClassName, setNewClassName] = useState('');
+  // ================================================================
+  // SECTION 8 : 반(Class) 관리 함수들
+  // ----------------------------------------------------------------
+  // [함수 목록]
+  //   handleAddClass      - 신규 반 추가 (판서반/개별반 구분)
+  //   handleDeleteClass   - 반 삭제 (학생 있으면 차단, 경고 모달 표시)
+  //   confirmDeleteClass  - 반 삭제 최종 확인
+  //   toggleDaySelection  - 반 추가 폼에서 요일 선택/해제
+  //   startEditingClass   - 반 수정 모드 시작
+  //   saveEditedClass     - 반 수정 저장
+  // ================================================================
   const [newClassDays, setNewClassDays] = useState([]);
   const [newClassInstructor, setNewClassInstructor] = useState(''); 
   const [newClassType, setNewClassType] = useState('lecture'); 
@@ -536,6 +659,18 @@ function MainApp({ role, user, setRole, teacherId }) {
     setEditingClassId(null);
     showToast('반 정보가 수정되었습니다.');
   };
+
+  // ================================================================
+  // SECTION 9 : 학생 관리 함수들
+  // ----------------------------------------------------------------
+  // [함수 목록]
+  //   handleAddStudent       - 신규 학생 추가
+  //   startEditingStudent    - 학생 수정 모드 시작
+  //   saveEditedStudent      - 학생 수정 저장
+  //   confirmDeleteStudent   - 학생 삭제 최종 확인
+  //   handleSort             - 학생 목록 정렬 (이름/학교/반/강사 기준)
+  //   getSortedStudentsForManagement - 필터+정렬 적용된 학생 목록 반환
+  // ================================================================
 
   // --- 학생 관리 로직 ---
   const [newStudentName, setNewStudentName] = useState('');
@@ -599,6 +734,21 @@ function MainApp({ role, user, setRole, teacherId }) {
       return 0;
     });
   };
+
+  // ================================================================
+  // SECTION 10 : 일일 출결 / 과제 함수들
+  // ----------------------------------------------------------------
+  // [함수 목록]
+  //   getWeekDays                   - 선택 날짜 기준 주간 날짜 배열 반환
+  //   getLocalDayOfWeek             - 날짜 문자열 → 요일 숫자 변환
+  //   handleSpecificDateRecordChange - 특정 날짜+학생의 기록 변경 (주간뷰용)
+  //   handleRecordChange            - 선택된 날짜의 기록 변경 (일간뷰용)
+  //   handleQuickRemark             - 결석/지각 버튼 토글 처리
+  //   importPreviousRemark          - 이전 수업 특이사항 복사
+  //
+  // [수정 포인트] 과제 달성률 버튼 단위 바꾸려면 UI 섹션(SECTION 17)의
+  //              [0,10,20,...100] 배열 수정
+  // ================================================================
 
   // --- 일일 출결/과제 로직 ---
   const getWeekDays = (dateString) => {
@@ -679,6 +829,28 @@ function MainApp({ role, user, setRole, teacherId }) {
 
   const selectedDayOfWeek = getLocalDayOfWeek(selectedDate);
   const targetClasses = visibleClasses.filter(c => c.days.includes(selectedDayOfWeek));
+
+  // ================================================================
+  // SECTION 11 : 주간 테스트 함수들
+  // ----------------------------------------------------------------
+  // [판서반(공통) 함수]
+  //   handleAddLectureTestRow  - 판서반 테스트 행 추가
+  //   handleLectureTestChange  - 판서반 테스트 과정명/날짜/총문항 수정
+  //   handleLectureScoreChange - 판서반 개별 학생 점수/재시 입력
+  //                             (80% 이상 자동 통과 판정, 범위 초과 에러 처리)
+  //   calculateTestAverage     - 판서반 테스트 반 평균 계산
+  //   handleExportCSV          - 판서반 테스트 결과 CSV 다운로드
+  //
+  // [개별반 함수]
+  //   handleAddIndivTestRow    - 개별반 학생 테스트 행 추가
+  //   handleIndivTestChange    - 개별반 테스트 값 수정
+  //
+  // [공통]
+  //   handleDeleteTestRow      - 테스트 행 삭제 (모달 트리거)
+  //   confirmDeleteTest        - 테스트 삭제 최종 확인
+  //
+  // [수정 포인트] 통과 기준 80% 변경 → >= 0.8 값을 수정 (3곳 존재)
+  // ================================================================
 
   // --- 판서반(공통) 테스트 로직 ---
  const handleAddLectureTestRow = () => {
@@ -810,6 +982,23 @@ function MainApp({ role, user, setRole, teacherId }) {
     });
   };
 
+  // ================================================================
+  // SECTION 12 : 리포트 생성 함수들
+  // ================================================================
+  // [함수 목록]
+  //   getAutoAttendanceRemark - 출결 기록에서 결석/지각 날짜 자동 추출
+  //   buildReportText         - 템플릿 + 데이터 → 최종 텍스트 조립
+  //                            ([학생이름], [과제성취도] 등 태그 치환)
+  //   getDynamicBasicReport   - 학생 1명의 전체 리포트 생성 (위 함수들 종합)
+  //   handleCopy              - 리포트 텍스트 클립보드 복사
+  //                            (주간진도 미입력 시 복사 차단)
+  //   renderSortIcon          - 정렬 아이콘 렌더링 헬퍼
+  //   restoreDefaultTemplates - 리포트 템플릿 기본값으로 초기화
+  //
+  // [수정 포인트] 리포트에 새 태그 추가 시 buildReportText 내
+  //              report.replace() 패턴 추가 필요
+  // ================================================================
+
   // --- 결석/지각 자동 멘트 생성 ---
   const getAutoAttendanceRemark = (studentId) => {
     let remarks = [];
@@ -925,6 +1114,22 @@ function MainApp({ role, user, setRole, teacherId }) {
 
   if (!isLoaded) return <div className="min-h-screen flex items-center justify-center"><Loader2 className="animate-spin text-blue-500" size={32}/></div>;
 
+  // ================================================================
+  // SECTION 13 : UI 렌더링 시작
+  // ----------------------------------------------------------------
+  // 이 아래부터는 모두 화면에 보이는 JSX (HTML) 코드입니다.
+  //
+  // [렌더링 구성]
+  //   - 토스트 알림 (우측 상단 팝업)
+  //   - 모달들 (반삭제/학생삭제/테스트삭제 확인창)
+  //   - 헤더 (타이틀 + 로그아웃)
+  //   - 탭 네비게이션
+  //   - 각 탭 콘텐츠 (SECTION 14~20)
+  //
+  // [수정 포인트] 새 탭을 추가하려면
+  //   1) 탭 버튼 배열에 항목 추가
+  //   2) 아래에 {activeTab === '새탭id' && (...)} 블록 추가
+  // ================================================================
   return (
     <div className={`min-h-screen p-4 md:p-8 font-sans relative ${isReadOnly ? 'bg-emerald-50' : 'bg-gray-50'}`}>
       <style>{`
@@ -1046,6 +1251,10 @@ function MainApp({ role, user, setRole, teacherId }) {
 
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 min-h-[500px]">
           
+          {/* ============================================================
+              SECTION 14 : [탭] 강사 관리 UI  (관리자 전용)
+              [수정 포인트] 강사 테이블 컬럼 추가/변경은 thead + tbody 동시 수정
+              ============================================================ */}
           {/* 강사 관리 */}
           {role === 'admin' && activeTab === 'instructors' && (
              <div>
@@ -1089,6 +1298,11 @@ function MainApp({ role, user, setRole, teacherId }) {
              </div>
           )}
 
+          {/* ============================================================
+              SECTION 15 : [탭] 반 관리 UI
+              [수정 포인트] 반 카드 디자인 변경 → 아래 return (...) 카드 블록
+              [수정 포인트] 반 추가 폼 필드 추가 → 상단 bg-gray-50 div 블록
+              ============================================================ */}
           {/* 반 관리 */}
           {activeTab === 'classes' && (
             <div>
@@ -1173,6 +1387,11 @@ function MainApp({ role, user, setRole, teacherId }) {
             </div>
           )}
 
+          {/* ============================================================
+              SECTION 16 : [탭] 학생 관리 UI
+              [수정 포인트] 학생 테이블에 컬럼 추가 → thead + tbody 동시 수정
+              [수정 포인트] 강사별 필터 드롭다운 → 아래 filterInstructor select
+              ============================================================ */}
           {/* 학생 관리 */}
           {activeTab === 'students' && (
             <div>
@@ -1250,6 +1469,12 @@ function MainApp({ role, user, setRole, teacherId }) {
             </div>
           )}
 
+          {/* ============================================================
+              SECTION 17 : [탭] 일일 출결/과제 UI
+              [수정 포인트] 과제 달성률 버튼 단계 변경
+                           → [0,10,20,...100] 배열 수정 (일간뷰/주간뷰 두 곳)
+              [수정 포인트] 일간뷰 ↔ 주간뷰 전환 → viewMode state
+              ============================================================ */}
           {/* 일일 출결/과제 */}
           {activeTab === 'daily' && (
             <div>
@@ -1421,6 +1646,11 @@ function MainApp({ role, user, setRole, teacherId }) {
             </div>
           )}
 
+          {/* ============================================================
+              SECTION 18 : [탭] 주간 테스트 UI
+              [수정 포인트] 판서반 테이블 컬럼 추가 → thead + tbody 동시 수정
+              [수정 포인트] 개별반 탭 디자인 → isIndividual 분기 아래 블록
+              ============================================================ */}
           {/* 주간 테스트 */}
           {activeTab === 'tests' && (
             <div>
@@ -1600,6 +1830,12 @@ function MainApp({ role, user, setRole, teacherId }) {
             </div>
           )}
 
+          {/* ============================================================
+              SECTION 19 : [탭] 주간 리포트 UI
+              [수정 포인트] 학생 카드 레이아웃 변경 → map() 안쪽 div 블록
+              [수정 포인트] 복사 버튼 위치/디자인 → 카드 내 absolute 버튼
+              [수정 포인트] '전송 제외' 버튼 → isExcluded 토글 버튼
+              ============================================================ */}
           {/* 주간 리포트 */}
           {activeTab === 'report' && (
             <div className="space-y-6 pointer-events-auto">
@@ -1688,6 +1924,12 @@ function MainApp({ role, user, setRole, teacherId }) {
             </div>
           )}
 
+          {/* ============================================================
+              SECTION 20 : [탭] 설정 UI  (관리자 전용)
+              [수정 포인트] DB 강제 청소 버튼 → 빨간 bg-red-50 블록
+              [수정 포인트] 백업/복구 버튼 추가 → bg-green-50 블록 내 버튼 추가
+              [수정 포인트] 템플릿 입력창 → 하단 bg-white 블록
+              ============================================================ */}
           {/* 설정 */}
           {activeTab === 'settings' && !isReadOnly && (
             <div className="max-w-3xl mx-auto space-y-6">
