@@ -658,7 +658,7 @@ function MainApp({ role, user, setRole, teacherId }) {
   // ================================================================
   // SECTION 10 : 일일 출결 / 과제 함수들
   // ================================================================
-  const getWeekDays = (dateString) => {
+    const getWeekDays = (dateString) => {
     if (!dateString) return [];
     const [y, m, d] = dateString.split('-');
     const date = new Date(y, m - 1, d);
@@ -687,7 +687,8 @@ function MainApp({ role, user, setRole, teacherId }) {
     if (isReadOnly) return;
     setRecords(prev => {
       const dateRecords = prev[dateStr] || {};
-      return { ...prev, [dateStr]: { ...dateRecords, [studentId]: { ...(dateRecords[studentId] || { progress: 0, remark: '' }), [field]: value } } };
+      const studentRecord = dateRecords[studentId] || { progress: 100, remark: '' };
+      return { ...prev, [dateStr]: { ...dateRecords, [studentId]: { ...studentRecord, [field]: value } } };
     });
   };
 
@@ -707,9 +708,10 @@ function MainApp({ role, user, setRole, teacherId }) {
         currentRemark = currentRemark.replace(/지각/g, '').trim(); 
         if (currentRemark.includes('결석')) {
           currentRemark = currentRemark.replace(/결석/g, '').replace(/\s+/g, ' ').trim();
+          newProgress = 100;
         } else {
           currentRemark = (currentRemark + ' 결석').trim();
-          newProgress = 0;
+          newProgress = null;
         }
       } else if (type === '지각') {
         currentRemark = currentRemark.replace(/결석/g, '').trim(); 
@@ -717,6 +719,7 @@ function MainApp({ role, user, setRole, teacherId }) {
           currentRemark = currentRemark.replace(/지각/g, '').replace(/\s+/g, ' ').trim();
         } else {
           currentRemark = (currentRemark + ' 지각').trim();
+          if (newProgress === null) newProgress = 100;
         }
       }
       return { ...prev, [dateStr]: { ...dateRecords, [studentId]: { ...studentRecord, remark: currentRemark, progress: newProgress } } };
@@ -737,6 +740,32 @@ function MainApp({ role, user, setRole, teacherId }) {
   const selectedDayOfWeek = getLocalDayOfWeek(selectedDate);
   const targetClasses = visibleClasses.filter(c => c.days.includes(selectedDayOfWeek));
 
+  useEffect(() => {
+    if (isReadOnly || !isLoaded) return;
+    setRecords(prev => {
+      let updated = false;
+      const next = { ...prev };
+      const ensureRecord = (date, stId) => {
+        if (!next[date]) next[date] = {};
+        if (!next[date][stId]) {
+          next[date][stId] = { progress: 100, remark: '' };
+          updated = true;
+        }
+      };
+      if (viewMode === 'daily') {
+        targetClasses.forEach(c => visibleStudents.filter(s => s.classId === c.id).forEach(s => ensureRecord(selectedDate, s.id)));
+      } else {
+        const wDates = getWeekDays(selectedDate);
+        visibleClasses.forEach(c => {
+          const classDays = wDates.filter(d => c.days.includes(getLocalDayOfWeek(d)));
+          visibleStudents.filter(s => s.classId === c.id).forEach(s => classDays.forEach(d => ensureRecord(d, s.id)));
+        });
+      }
+      return updated ? next : prev;
+    });
+  }, [isLoaded, selectedDate, viewMode, targetClasses, visibleClasses, visibleStudents]);
+
+  
   // ================================================================
   // SECTION 11 : 주간 테스트 함수들
   // ================================================================
@@ -946,7 +975,7 @@ function MainApp({ role, user, setRole, teacherId }) {
       });
     }
 
-    const stdRecords = Object.values(records).filter((_, i) => Object.keys(records)[i] >= reportStartDate && Object.keys(records)[i] <= reportEndDate).map(d => d[student.id]).filter(r => r && r.progress !== undefined);
+    const stdRecords = Object.values(records).filter((_, i) => Object.keys(records)[i] >= reportStartDate && Object.keys(records)[i] <= reportEndDate).map(d => d[student.id]).filter(r => r && r.progress !== undefined && r.progress !== null && !(r.remark || '').includes('결석'));
     const avgProgress = stdRecords.length > 0 ? Math.round(stdRecords.reduce((sum, r) => sum + r.progress, 0) / stdRecords.length) : 100;
     
     const autoRemark = getAutoAttendanceRemark(student.id);
@@ -1414,11 +1443,11 @@ function MainApp({ role, user, setRole, teacherId }) {
                                         <span>과제 달성률</span>
                                         <span className={`font-bold ${record.progress === 100 ? 'text-green-600' : 'text-blue-600'}`}>{record.progress}%</span>
                                       </div>
-                                      <div className={`flex w-full bg-gray-100 rounded-md overflow-hidden border border-gray-200 ${isReadOnly ? 'pointer-events-none' : ''}`}>
-                                        {[0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100].map((val) => (
-                                          <button key={val} onClick={() => handleRecordChange(student.id, 'progress', val)}
-                                            className={`flex-1 h-8 text-[10px] font-medium transition-colors outline-none
-                                              ${record.progress === val ? 'bg-blue-600 text-white font-bold scale-105 shadow-sm relative z-10' : 'text-gray-500 hover:bg-gray-200'}
+                                      <div className={`flex w-full bg-gray-100 rounded-md overflow-hidden border border-gray-200 ${isReadOnly || record.progress === null ? 'pointer-events-none opacity-50 grayscale' : ''}`}>
+                                        {[0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100].map(val => (
+                                          <button key={val} onClick={() => handleSpecificDateRecordChange(d, student.id, 'progress', val)}
+                                            className={`flex-1 h-7 text-[9px] font-medium transition-colors outline-none
+                                              ${record.progress === val ? 'bg-blue-600 text-white font-bold shadow-sm relative z-10' : 'text-gray-500 hover:bg-gray-200'}
                                               ${record.progress === 100 && val === 100 ? '!bg-green-500' : ''}`}
                                           >
                                             {val === 0 || val === 100 ? `${val}%` : val}
@@ -1474,7 +1503,12 @@ function MainApp({ role, user, setRole, teacherId }) {
                             </thead>
                             <tbody className={isReadOnly ? 'pointer-events-none' : ''}>
                               {classStudents.map(student => {
-                                const validProgs = weekDates.map(d => records[d]?.[student.id]?.progress).filter(p => p !== undefined);
+                                // 1. 평균 계산: 결석일 경우 배열에서 완전히 제외
+                                const validProgs = weekDates.map(d => {
+                                  const r = records[d]?.[student.id];
+                                  if (r && (r.remark || '').includes('결석')) return null;
+                                  return r && r.progress !== undefined && r.progress !== null ? r.progress : 100;
+                                }).filter(p => p !== null);
                                 const avg = validProgs.length ? Math.round(validProgs.reduce((a,b)=>a+b,0)/validProgs.length) : 0;
 
                                 return (
@@ -1482,19 +1516,27 @@ function MainApp({ role, user, setRole, teacherId }) {
                                     <td className="p-3 border-r font-medium whitespace-nowrap sticky left-0 bg-white group-hover:bg-gray-50 z-10">{student.name}</td>
                                     {weekDates.map(d => {
                                       const record = records[d]?.[student.id] || { progress: 100, remark: '' };
+                                      const isAbsent = (record.remark || '').includes('결석');
+
                                       return (
                                         <td key={d} className="p-3 border-r text-left align-top">
                                           <div className="flex flex-col gap-2">
                                             <div className="text-xs font-medium text-gray-600 flex justify-between items-center">
                                               <span>과제 달성률</span>
-                                              <span className={`font-bold ${record.progress === 100 ? 'text-green-600' : 'text-blue-600'}`}>{record.progress}%</span>
+                                              <span className={`font-bold ${record.progress === 100 && !isAbsent ? 'text-green-600' : 'text-blue-600'}`}>
+                                                {isAbsent ? '-' : `${record.progress}%`}
+                                              </span>
                                             </div>
-                                            <div className="flex w-full bg-gray-100 rounded-md overflow-hidden border border-gray-200">
+                                            <div className={`flex w-full bg-gray-100 rounded-md overflow-hidden border border-gray-200 ${isReadOnly || isAbsent ? 'opacity-40 grayscale bg-gray-200' : ''}`}>
                                               {[0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100].map(val => (
-                                                <button key={val} onClick={() => handleSpecificDateRecordChange(d, student.id, 'progress', val)}
+                                                <button 
+                                                  key={val} 
+                                                  onClick={() => handleSpecificDateRecordChange(d, student.id, 'progress', val)}
+                                                  disabled={isReadOnly || isAbsent} // DOM 원시 속성으로 물리적 클릭 완전 차단
                                                   className={`flex-1 h-7 text-[9px] font-medium transition-colors outline-none
                                                     ${record.progress === val ? 'bg-blue-600 text-white font-bold shadow-sm relative z-10' : 'text-gray-500 hover:bg-gray-200'}
-                                                    ${record.progress === 100 && val === 100 ? '!bg-green-500' : ''}`}
+                                                    ${record.progress === 100 && val === 100 ? '!bg-green-500' : ''}
+                                                    ${(isReadOnly || isAbsent) ? 'cursor-not-allowed hover:bg-transparent' : ''}`}
                                                 >
                                                   {val === 0 || val === 100 ? `${val}%` : val}
                                                 </button>
@@ -1503,8 +1545,8 @@ function MainApp({ role, user, setRole, teacherId }) {
                                             <div className="flex items-center gap-1 mt-1">
                                               <input type="text" placeholder="특이사항 입력" value={record.remark} onChange={(e) => handleSpecificDateRecordChange(d, student.id, 'remark', e.target.value)} className="flex-1 w-full border border-gray-300 rounded p-1.5 text-xs focus:ring-1 focus:ring-blue-500 outline-none min-w-[80px]" />
                                               <button onClick={() => importPreviousRemark(student.id, d)} title="이전 특이사항 복사" className="text-gray-400 hover:text-blue-600 p-1.5 bg-gray-50 border border-gray-200 hover:bg-blue-50 rounded transition-colors flex-shrink-0"><Copy size={14}/></button>
-                                              <button onClick={() => handleQuickRemark(d, student.id, '결석')} className={`px-1.5 py-1 text-[10px] font-bold rounded border transition-colors flex-shrink-0 ${record.remark.includes('결석') ? 'bg-red-500 text-white border-red-600' : 'bg-red-50 text-red-600 border-red-100 hover:bg-red-100'}`}>결석</button>
-                                              <button onClick={() => handleQuickRemark(d, student.id, '지각')} className={`px-1.5 py-1 text-[10px] font-bold rounded border transition-colors flex-shrink-0 ${record.remark.includes('지각') ? 'bg-orange-500 text-white border-orange-600' : 'bg-orange-50 text-orange-600 border-orange-100 hover:bg-orange-100'}`}>지각</button>
+                                              <button onClick={() => handleQuickRemark(d, student.id, '결석')} className={`px-1.5 py-1 text-[10px] font-bold rounded border transition-colors flex-shrink-0 ${(record.remark||'').includes('결석') ? 'bg-red-500 text-white border-red-600' : 'bg-red-50 text-red-600 border-red-100 hover:bg-red-100'}`}>결석</button>
+                                              <button onClick={() => handleQuickRemark(d, student.id, '지각')} className={`px-1.5 py-1 text-[10px] font-bold rounded border transition-colors flex-shrink-0 ${(record.remark||'').includes('지각') ? 'bg-orange-500 text-white border-orange-600' : 'bg-orange-50 text-orange-600 border-orange-100 hover:bg-orange-100'}`}>지각</button>
                                             </div>
                                           </div>
                                         </td>
