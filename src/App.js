@@ -298,6 +298,10 @@ function MainApp({ role, user, setRole, teacherId }) {
 
   const [copiedId, setCopiedId] = useState(null);
 
+  const [customReports, setCustomReports] = useState({});
+  const [editingReportId, setEditingReportId] = useState(null);
+  const [editReportText, setEditReportText] = useState('');
+
   const showToast = (message, type = 'success') => { 
     setToast({ message, type });
     setTimeout(() => setToast(null), 3000); 
@@ -1869,9 +1873,63 @@ function MainApp({ role, user, setRole, teacherId }) {
                           </div>
                           
                           <div className="relative flex-1 flex flex-col">
-                            <label className="text-[10px] font-bold text-gray-500 mb-1 block">최종 전송 텍스트 (자동 생성됨)</label>
-                            <textarea value={currentReportText} readOnly className="w-full h-full min-h-[250px] border border-gray-200 rounded-md p-4 text-gray-800 bg-gray-50 outline-none resize-none text-sm leading-relaxed pb-12" />
-                            <button onClick={() => handleCopy(currentReportText, student.id, currentWeeklyProgress)} disabled={isExcluded} className={`absolute bottom-3 right-3 text-white px-5 py-2 rounded shadow-md flex items-center gap-2 text-sm font-bold transition-colors disabled:opacity-50 ${copiedId === student.id ? 'bg-green-600 hover:bg-green-700' : 'bg-gray-800 hover:bg-gray-900'}`}>
+                            <div className="flex justify-between items-end mb-1">
+                              <label className="text-[10px] font-bold text-gray-500">최종 전송 텍스트</label>
+                              <div className="flex gap-2">
+                                {/* 초기화 버튼 */}
+                                {customReports[student.id] !== undefined && (
+                                  <button
+                                    onClick={() => {
+                                      if (window.confirm('수정한 내용을 지우고 원래의 자동생성 상태로 되돌리시겠습니까?')) {
+                                        setCustomReports(prev => { const next = {...prev}; delete next[student.id]; return next; });
+                                        if (editingReportId === student.id) setEditingReportId(null);
+                                      }
+                                    }}
+                                    disabled={isExcluded}
+                                    className="flex items-center gap-1 px-2 py-1 rounded transition-colors hover:bg-red-50 text-red-500 disabled:opacity-50"
+                                  >
+                                    <RefreshCcw size={14} /> <span className="text-xs font-bold">초기화</span>
+                                  </button>
+                                )}
+                                
+                                {/* 수정/저장 토글 버튼 */}
+                                <button 
+                                  onClick={() => {
+                                    if (editingReportId === student.id) {
+                                      setCustomReports(prev => ({...prev, [student.id]: editReportText}));
+                                      setEditingReportId(null);
+                                    } else {
+                                      setEditReportText(customReports[student.id] !== undefined ? customReports[student.id] : currentReportText);
+                                      setEditingReportId(student.id);
+                                    }
+                                  }}
+                                  disabled={isExcluded}
+                                  className={`flex items-center gap-1 px-2 py-1 rounded transition-colors ${editingReportId === student.id ? 'bg-green-50 hover:bg-green-100' : 'hover:bg-gray-100'} disabled:opacity-50`}
+                                >
+                                  {editingReportId === student.id ? (
+                                    <><Check size={14} className="text-green-600"/> <span className="text-xs font-bold text-green-700">저장하기</span></>
+                                  ) : (
+                                    <><Edit2 size={14} className="text-blue-500"/> <span className="text-xs font-bold text-blue-600">수정하기</span></>
+                                  )}
+                                </button>
+                              </div>
+                            </div>
+                            
+                            <textarea 
+                              value={editingReportId === student.id ? editReportText : (customReports[student.id] !== undefined ? customReports[student.id] : currentReportText)} 
+                              onChange={(e) => setEditReportText(e.target.value)}
+                              readOnly={editingReportId !== student.id} 
+                              className={`w-full h-full min-h-[250px] border rounded-md p-4 outline-none resize-none text-sm leading-relaxed pb-12 transition-all duration-200
+                                ${editingReportId === student.id 
+                                  ? 'bg-white border-blue-400 ring-2 ring-blue-100 text-gray-900 shadow-inner' 
+                                  : 'border-gray-200 bg-gray-50 text-gray-800'}`} 
+                            />
+                            
+                            <button 
+                              onClick={() => handleCopy(customReports[student.id] !== undefined ? customReports[student.id] : currentReportText, student.id, currentWeeklyProgress)} 
+                              disabled={isExcluded || editingReportId === student.id} 
+                              className={`absolute bottom-3 right-3 text-white px-5 py-2 rounded shadow-md flex items-center gap-2 text-sm font-bold transition-colors disabled:opacity-50 ${copiedId === student.id ? 'bg-green-600 hover:bg-green-700' : 'bg-gray-800 hover:bg-gray-900'}`}
+                            >
                               {copiedId === student.id ? <Check size={14} /> : <Copy size={14} />}
                               {copiedId === student.id ? '복사 완료!' : '복사하기'}
                             </button>
