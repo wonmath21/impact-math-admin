@@ -658,7 +658,7 @@ function MainApp({ role, user, setRole, teacherId }) {
   // ================================================================
   // SECTION 10 : 일일 출결 / 과제 함수들
   // ================================================================
-    const getWeekDays = (dateString) => {
+  const getWeekDays = (dateString) => {
     if (!dateString) return [];
     const [y, m, d] = dateString.split('-');
     const date = new Date(y, m - 1, d);
@@ -683,12 +683,53 @@ function MainApp({ role, user, setRole, teacherId }) {
     return new Date(y, m - 1, d).getDay();
   };
 
+  const selectedDayOfWeek = getLocalDayOfWeek(selectedDate);
+  const targetClasses = visibleClasses.filter(c => c.days.includes(selectedDayOfWeek));
+
+  // [수정: 객체 변이(Mutation)를 완벽 차단하여 클릭 이벤트가 씹히지 않도록 조치]
+  useEffect(() => {
+    if (isReadOnly || !isLoaded) return;
+    setRecords(prev => {
+      let updated = false;
+      let next = { ...prev };
+
+      const ensureRecord = (date, stId) => {
+        if (!next[date]) {
+          next[date] = {};
+          updated = true;
+        }
+        if (!next[date][stId]) {
+          // 🚨 기존의 직접 조작 방식을 버리고, 새로운 객체 메모리 주소를 할당하여 React가 변화를 감지하도록 함
+          next[date] = { ...next[date], [stId]: { progress: 100, remark: '' } };
+          updated = true;
+        }
+      };
+
+      if (viewMode === 'daily') {
+        targetClasses.forEach(c => visibleStudents.filter(s => s.classId === c.id).forEach(s => ensureRecord(selectedDate, s.id)));
+      } else {
+        const wDates = getWeekDays(selectedDate);
+        visibleClasses.forEach(c => {
+          const classDays = wDates.filter(d => c.days.includes(getLocalDayOfWeek(d)));
+          visibleStudents.filter(s => s.classId === c.id).forEach(s => classDays.forEach(d => ensureRecord(d, s.id)));
+        });
+      }
+      return updated ? next : prev;
+    });
+  }, [isLoaded, selectedDate, viewMode, targetClasses, visibleClasses, visibleStudents]);
+
   const handleSpecificDateRecordChange = (dateStr, studentId, field, value) => {
     if (isReadOnly) return;
     setRecords(prev => {
       const dateRecords = prev[dateStr] || {};
       const studentRecord = dateRecords[studentId] || { progress: 100, remark: '' };
-      return { ...prev, [dateStr]: { ...dateRecords, [studentId]: { ...studentRecord, [field]: value } } };
+      return { 
+        ...prev, 
+        [dateStr]: { 
+          ...dateRecords, 
+          [studentId]: { ...studentRecord, [field]: value } 
+        } 
+      };
     });
   };
 
@@ -708,10 +749,10 @@ function MainApp({ role, user, setRole, teacherId }) {
         currentRemark = currentRemark.replace(/지각/g, '').trim(); 
         if (currentRemark.includes('결석')) {
           currentRemark = currentRemark.replace(/결석/g, '').replace(/\s+/g, ' ').trim();
-          newProgress = 100;
+          if (newProgress === null) newProgress = 100;
         } else {
           currentRemark = (currentRemark + ' 결석').trim();
-          newProgress = null;
+          newProgress = null; 
         }
       } else if (type === '지각') {
         currentRemark = currentRemark.replace(/결석/g, '').trim(); 
@@ -722,7 +763,13 @@ function MainApp({ role, user, setRole, teacherId }) {
           if (newProgress === null) newProgress = 100;
         }
       }
-      return { ...prev, [dateStr]: { ...dateRecords, [studentId]: { ...studentRecord, remark: currentRemark, progress: newProgress } } };
+      return { 
+        ...prev, 
+        [dateStr]: { 
+          ...dateRecords, 
+          [studentId]: { ...studentRecord, remark: currentRemark, progress: newProgress } 
+        } 
+      };
     });
   };
 
@@ -736,34 +783,6 @@ function MainApp({ role, user, setRole, teacherId }) {
       showToast('이전 특이사항 기록이 없습니다.', 'error');
     }
   };
-
-  const selectedDayOfWeek = getLocalDayOfWeek(selectedDate);
-  const targetClasses = visibleClasses.filter(c => c.days.includes(selectedDayOfWeek));
-
-  useEffect(() => {
-    if (isReadOnly || !isLoaded) return;
-    setRecords(prev => {
-      let updated = false;
-      const next = { ...prev };
-      const ensureRecord = (date, stId) => {
-        if (!next[date]) next[date] = {};
-        if (!next[date][stId]) {
-          next[date][stId] = { progress: 100, remark: '' };
-          updated = true;
-        }
-      };
-      if (viewMode === 'daily') {
-        targetClasses.forEach(c => visibleStudents.filter(s => s.classId === c.id).forEach(s => ensureRecord(selectedDate, s.id)));
-      } else {
-        const wDates = getWeekDays(selectedDate);
-        visibleClasses.forEach(c => {
-          const classDays = wDates.filter(d => c.days.includes(getLocalDayOfWeek(d)));
-          visibleStudents.filter(s => s.classId === c.id).forEach(s => classDays.forEach(d => ensureRecord(d, s.id)));
-        });
-      }
-      return updated ? next : prev;
-    });
-  }, [isLoaded, selectedDate, viewMode, targetClasses, visibleClasses, visibleStudents]);
 
   
   // ================================================================
@@ -1443,12 +1462,15 @@ function MainApp({ role, user, setRole, teacherId }) {
                                         <span>과제 달성률</span>
                                         <span className={`font-bold ${record.progress === 100 ? 'text-green-600' : 'text-blue-600'}`}>{record.progress}%</span>
                                       </div>
-                                      <div className={`flex w-full bg-gray-100 rounded-md overflow-hidden border border-gray-200 ${isReadOnly || record.progress === null ? 'pointer-events-none opacity-50 grayscale' : ''}`}>
-                                        {[0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100].map(val => (
-                                          <button key={val} onClick={() => handleSpecificDateRecordChange(d, student.id, 'progress', val)}
-                                            className={`flex-1 h-7 text-[9px] font-medium transition-colors outline-none
-                                              ${record.progress === val ? 'bg-blue-600 text-white font-bold shadow-sm relative z-10' : 'text-gray-500 hover:bg-gray-200'}
-                                              ${record.progress === 100 && val === 100 ? '!bg-green-500' : ''}`}
+                                      <div className={`flex w-full bg-gray-100 rounded-md overflow-hidden border border-gray-200 ${isReadOnly || record.remark.includes('결석') ? 'opacity-40 grayscale bg-gray-200' : ''}`}>
+                                        {[0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100].map((val) => (
+                                          <button key={val} 
+                                            onClick={() => handleRecordChange(student.id, 'progress', val)}
+                                            disabled={isReadOnly || record.remark.includes('결석')}
+                                            className={`flex-1 h-8 text-[10px] font-medium transition-colors outline-none
+                                              ${record.progress === val ? 'bg-blue-600 text-white font-bold scale-105 shadow-sm relative z-10' : 'text-gray-500 hover:bg-gray-200'}
+                                              ${record.progress === 100 && val === 100 ? '!bg-green-500' : ''}
+                                              ${(isReadOnly || record.remark.includes('결석')) ? 'cursor-not-allowed hover:bg-transparent' : ''}`}
                                           >
                                             {val === 0 || val === 100 ? `${val}%` : val}
                                           </button>
@@ -1532,7 +1554,7 @@ function MainApp({ role, user, setRole, teacherId }) {
                                                 <button 
                                                   key={val} 
                                                   onClick={() => handleSpecificDateRecordChange(d, student.id, 'progress', val)}
-                                                  disabled={isReadOnly || isAbsent} // DOM 원시 속성으로 물리적 클릭 완전 차단
+                                                  disabled={isReadOnly || isAbsent}
                                                   className={`flex-1 h-7 text-[9px] font-medium transition-colors outline-none
                                                     ${record.progress === val ? 'bg-blue-600 text-white font-bold shadow-sm relative z-10' : 'text-gray-500 hover:bg-gray-200'}
                                                     ${record.progress === 100 && val === 100 ? '!bg-green-500' : ''}
