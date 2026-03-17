@@ -240,14 +240,31 @@ export default function App() {
 // ================================================================
 // SECTION 4 : MainApp - 전체 State(상태) 선언부
 // ================================================================
+// ================================================================
+// SECTION 4 : MainApp - 전체 State(상태) 선언부
+// ================================================================
 function MainApp({ role, user, setRole, teacherId }) {
   const isReadOnly = role === 'office';
   const [isLoaded, setIsLoaded] = useState(false);
-  const [activeTab, setActiveTab] = useState(() => localStorage.getItem('activeTab') || 'daily');
+
+  // [획기적 개선: 화이트리스트(Whitelist) 검증 및 역할별 네임스페이스 분리]
+  const [activeTab, setActiveTab] = useState(() => {
+    // 1. 현재 접속한 권한(role)에 맞는 캐시만 읽어옴
+    const saved = localStorage.getItem(`activeTab_${role}`);
+    
+    // 2. 현재 권한이 절대적으로 접근 가능한 탭의 목록(화이트리스트) 정의
+    const validTabs = ['daily', 'tests', 'students', 'classes', 'report'];
+    if (role === 'admin') validTabs.push('instructors');
+    if (!isReadOnly) validTabs.push('settings');
+
+    // 3. 캐시가 존재하더라도 화이트리스트에 없으면 무조건 'daily'로 튕겨냄
+    return (saved && validTabs.includes(saved)) ? saved : 'daily';
+  });
 
   useEffect(() => {
-    localStorage.setItem('activeTab', activeTab);
-  }, [activeTab]);
+    // 저장할 때도 권한별로 꼬리표를 붙여서 완전히 격리하여 저장
+    localStorage.setItem(`activeTab_${role}`, activeTab);
+  }, [activeTab, role]);
   
   const loadData = (key, defaultData) => {
     const saved = localStorage.getItem(key);
@@ -1875,50 +1892,55 @@ function MainApp({ role, user, setRole, teacherId }) {
                           <div className="relative flex-1 flex flex-col">
                             <div className="flex justify-between items-end mb-1">
                               <label className="text-[10px] font-bold text-gray-500">최종 전송 텍스트</label>
-                              <div className="flex gap-2">
-                                {/* 초기화 버튼 */}
-                                {customReports[student.id] !== undefined && (
-                                  <button
+                              
+                              {/* 행정팀(office) 계정이 아닐 때만 수정/초기화 버튼 렌더링 */}
+                              {!isReadOnly && (
+                                <div className="flex gap-2">
+                                  {/* 초기화 버튼 */}
+                                  {customReports[student.id] !== undefined && (
+                                    <button
+                                      onClick={() => {
+                                        if (window.confirm('수정한 내용을 지우고 원래의 자동생성 상태로 되돌리시겠습니까?')) {
+                                          setCustomReports(prev => { const next = {...prev}; delete next[student.id]; return next; });
+                                          if (editingReportId === student.id) setEditingReportId(null);
+                                        }
+                                      }}
+                                      disabled={isExcluded}
+                                      className="flex items-center gap-1 px-2 py-1 rounded transition-colors hover:bg-red-50 text-red-500 disabled:opacity-50"
+                                    >
+                                      <RefreshCcw size={14} /> <span className="text-xs font-bold">초기화</span>
+                                    </button>
+                                  )}
+                                  
+                                  {/* 수정/저장 토글 버튼 */}
+                                  <button 
                                     onClick={() => {
-                                      if (window.confirm('수정한 내용을 지우고 원래의 자동생성 상태로 되돌리시겠습니까?')) {
-                                        setCustomReports(prev => { const next = {...prev}; delete next[student.id]; return next; });
-                                        if (editingReportId === student.id) setEditingReportId(null);
+                                      if (editingReportId === student.id) {
+                                        setCustomReports(prev => ({...prev, [student.id]: editReportText}));
+                                        setEditingReportId(null);
+                                      } else {
+                                        setEditReportText(customReports[student.id] !== undefined ? customReports[student.id] : currentReportText);
+                                        setEditingReportId(student.id);
                                       }
                                     }}
                                     disabled={isExcluded}
-                                    className="flex items-center gap-1 px-2 py-1 rounded transition-colors hover:bg-red-50 text-red-500 disabled:opacity-50"
+                                    className={`flex items-center gap-1 px-2 py-1 rounded transition-colors ${editingReportId === student.id ? 'bg-green-50 hover:bg-green-100' : 'hover:bg-gray-100'} disabled:opacity-50`}
                                   >
-                                    <RefreshCcw size={14} /> <span className="text-xs font-bold">초기화</span>
+                                    {editingReportId === student.id ? (
+                                      <><Check size={14} className="text-green-600"/> <span className="text-xs font-bold text-green-700">저장하기</span></>
+                                    ) : (
+                                      <><Edit2 size={14} className="text-blue-500"/> <span className="text-xs font-bold text-blue-600">수정하기</span></>
+                                    )}
                                   </button>
-                                )}
-                                
-                                {/* 수정/저장 토글 버튼 */}
-                                <button 
-                                  onClick={() => {
-                                    if (editingReportId === student.id) {
-                                      setCustomReports(prev => ({...prev, [student.id]: editReportText}));
-                                      setEditingReportId(null);
-                                    } else {
-                                      setEditReportText(customReports[student.id] !== undefined ? customReports[student.id] : currentReportText);
-                                      setEditingReportId(student.id);
-                                    }
-                                  }}
-                                  disabled={isExcluded}
-                                  className={`flex items-center gap-1 px-2 py-1 rounded transition-colors ${editingReportId === student.id ? 'bg-green-50 hover:bg-green-100' : 'hover:bg-gray-100'} disabled:opacity-50`}
-                                >
-                                  {editingReportId === student.id ? (
-                                    <><Check size={14} className="text-green-600"/> <span className="text-xs font-bold text-green-700">저장하기</span></>
-                                  ) : (
-                                    <><Edit2 size={14} className="text-blue-500"/> <span className="text-xs font-bold text-blue-600">수정하기</span></>
-                                  )}
-                                </button>
-                              </div>
+                                </div>
+                              )}
                             </div>
                             
+                            {/* textarea에도 isReadOnly 일 경우 강제 읽기 전용 속성 추가 */}
                             <textarea 
                               value={editingReportId === student.id ? editReportText : (customReports[student.id] !== undefined ? customReports[student.id] : currentReportText)} 
                               onChange={(e) => setEditReportText(e.target.value)}
-                              readOnly={editingReportId !== student.id} 
+                              readOnly={isReadOnly || editingReportId !== student.id} 
                               className={`w-full h-full min-h-[250px] border rounded-md p-4 outline-none resize-none text-sm leading-relaxed pb-12 transition-all duration-200
                                 ${editingReportId === student.id 
                                   ? 'bg-white border-blue-400 ring-2 ring-blue-100 text-gray-900 shadow-inner' 
