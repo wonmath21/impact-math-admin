@@ -30,7 +30,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Users, BookOpen, Calendar, Plus, Trash2, Edit2, Check, X, AlertCircle, Sparkles, Copy, Loader2, FileText, Download, Settings, ArrowUp, ArrowDown, ArrowUpDown, RefreshCcw, LogOut, Lock, UserCog, ClipboardList, Eye, Upload } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
-import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
+import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from 'firebase/auth';
 import { getFirestore, doc, setDoc, getDoc, updateDoc } from 'firebase/firestore';
 
 // ================================================================
@@ -197,43 +197,80 @@ function LoginScreen({ onLogin, error }) {
 // ================================================================
 // SECTION 3 : 최상위 App 컴포넌트 + 로그인 처리
 // ================================================================
+// ================================================================
+// SECTION 3 : 최상위 App 컴포넌트 + 로그인 처리 (Firebase Auth 적용)
+// ================================================================
 export default function App() {
   const [user, setUser] = useState(null);
   const [role, setRole] = useState(() => localStorage.getItem('userRole') || null); 
   const [teacherId, setTeacherId] = useState(() => localStorage.getItem('teacherId') || null);
   const [loginError, setLoginError] = useState('');
+  const [isAuthChecking, setIsAuthChecking] = useState(true);
 
   useEffect(() => {
-    const initAuth = async () => {
-      try {
-        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) await signInWithCustomToken(auth, __initial_auth_token);
-        else await signInAnonymously(auth);
-      } catch (err) { console.warn("Auth warning:", err.message); }
-    };
-    initAuth();
-    const unsubscribe = onAuthStateChanged(auth, setUser, (error) => { console.warn("Auth state warning:", error.message); });
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      if (currentUser) {
+        setUser(currentUser);
+        const email = currentUser.email || '';
+        
+        // 1. 최고 관리자 및 행정팀 판별
+        if (email === 'admin@impact.math') {
+          setRole('admin'); localStorage.setItem('userRole', 'admin');
+        } else if (email === 'office@impact.math') {
+          setRole('office'); localStorage.setItem('userRole', 'office');
+        } else {
+          // 2. 강사 판별 (입력한 이메일 앞부분과 DB의 username 대조)
+          try {
+            const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'academy', 'mainData');
+            const docSnap = await getDoc(docRef);
+            if (docSnap.exists()) {
+              const instructorsList = docSnap.data().instructors || [];
+              const extractedId = email.split('@')[0]; 
+              const matched = instructorsList.find(inst => inst.username === extractedId);
+              
+              if (matched) {
+                setRole('teacher'); setTeacherId(matched.id);
+                localStorage.setItem('userRole', 'teacher'); localStorage.setItem('teacherId', matched.id);
+              } else {
+                setLoginError('등록되지 않은 강사 계정입니다.');
+                await signOut(auth); // 강제 로그아웃
+                setRole(null);
+              }
+            }
+          } catch(e) {
+            setLoginError('강사 정보 연결 중 오류가 발생했습니다.');
+          }
+        }
+      } else {
+        // 로그아웃 상태 처리
+        setUser(null); setRole(null); setTeacherId(null);
+        localStorage.removeItem('userRole'); localStorage.removeItem('teacherId');
+      }
+      setIsAuthChecking(false);
+    });
     return () => unsubscribe();
   }, []);
 
   const handleLogin = async (id, pw) => {
     setLoginError('');
-    if (id === 'admin' && pw === 'admin') { setRole('admin'); localStorage.setItem('userRole', 'admin'); return; }
-    if (id === 'office' && pw === 'office') { setRole('office'); localStorage.setItem('userRole', 'office'); return; }
     try {
-      const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'academy', 'mainData');
-      const docSnap = await getDoc(docRef);
-      if (docSnap.exists()) {
-        const instructorsList = docSnap.data().instructors || [];
-        const matched = instructorsList.find(inst => inst.username === id && inst.password === pw);
-        if (matched) { setRole('teacher'); setTeacherId(matched.id); localStorage.setItem('userRole', 'teacher'); localStorage.setItem('teacherId', matched.id); return; }
-      }
-      setLoginError('아이디 또는 비밀번호가 올바르지 않습니다.');
+      // 강사가 아이디만 입력해도 자동으로 도메인을 붙여 이메일 형식으로 변환
+      const email = id.includes('@') ? id : `${id}@impact.math`;
+      await signInWithEmailAndPassword(auth, email, pw);
+      // 로그인 성공 시 onAuthStateChanged가 반응하여 자동으로 화면을 전환합니다.
     } catch(e) {
-      setLoginError('데이터베이스 연결 중 오류가 발생했습니다.');
+      if (e.code === 'auth/invalid-credential' || e.code === 'auth/user-not-found' || e.code === 'auth/wrong-password') {
+        setLoginError('아이디 또는 비밀번호가 올바르지 않습니다.');
+      } else {
+        setLoginError(`로그인 오류 (${e.code})`);
+      }
     }
   };
 
-  if (!role) return <LoginScreen onLogin={handleLogin} error={loginError} />;
+  // 인증 상태 확인 중일 때는 로딩 화면 표시
+  if (isAuthChecking) return <div className="min-h-screen flex items-center justify-center bg-gray-100"><Loader2 className="animate-spin text-blue-500" size={32}/></div>;
+  if (!role || !user) return <LoginScreen onLogin={handleLogin} error={loginError} />;
+  
   return <MainApp role={role} user={user} setRole={setRole} teacherId={teacherId} />;
 }
 
@@ -327,6 +364,27 @@ function MainApp({ role, user, setRole, teacherId }) {
   // ================================================================
   // SECTION 5 : Firebase 동기화 로직 (데이터 방어벽 + syncData)
   // ================================================================
+  
+  // ================================================================
+  // [신규 추가] 점 표기법(Dot Notation)을 활용한 개별 필드 업데이트
+  // ================================================================
+  const updatePartialData = async (fieldPath, value) => {
+    if (isReadOnly || !isLoaded) return;
+    
+    const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'academy', 'mainData');
+    
+    try {
+      // 지정된 경로(fieldPath)의 값만 부분 업데이트하여 동시성 충돌을 방지합니다.
+      await updateDoc(docRef, { 
+        [fieldPath]: value 
+      });
+    } catch (error) {
+      console.error("부분 업데이트 실패:", error);
+      showToast('서버 동기화 중 오류가 발생했습니다.', 'error');
+    }
+    console.log("전송되는 경로 및 데이터:", fieldPath, value);
+  };
+  
   const isUserInteraction = useRef(false);
   const initialDataSnapshot = useRef({});
 
@@ -394,12 +452,20 @@ function MainApp({ role, user, setRole, teacherId }) {
     }
   };
 
+  
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { syncData('instructors', instructors); }, [instructors]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { syncData('classes', classes); }, [classes]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { syncData('students', students); }, [students]);
-  useEffect(() => { syncData('records', records); }, [records]);
-  useEffect(() => { syncData('testRecords', testRecords); }, [testRecords]);
-  useEffect(() => { syncData('individualTestRecords', individualTestRecords); }, [individualTestRecords]);
+  
+  // (주의: 앞서 작업한 records, testRecords, individualTestRecords 등은 
+  // 동시성 문제 때문에 아예 이 줄 자체를 삭제하거나 전체 주석 처리하셨어야 합니다!)
+  // useEffect(() => { syncData('records', records); }, [records]);
+  // useEffect(() => { syncData('testRecords', testRecords); }, [testRecords]);
+  // useEffect(() => { syncData('individualTestRecords', individualTestRecords); }, [individualTestRecords]);
   useEffect(() => { syncData('classWeeklyProgress', classWeeklyProgress); }, [classWeeklyProgress]);
   useEffect(() => { syncData('individualWeeklyProgress', individualWeeklyProgress); }, [individualWeeklyProgress]);
   useEffect(() => { syncData('reportRemarks', reportRemarks); }, [reportRemarks]);
@@ -737,21 +803,33 @@ function MainApp({ role, user, setRole, teacherId }) {
       }
       return updated ? next : prev;
     });
-  }, [isLoaded, selectedDate, viewMode, targetClasses, visibleClasses, visibleStudents]);
+  // 기존 코드의 배열 끝에 isReadOnly 추가
+  }, [isLoaded, selectedDate, viewMode, targetClasses, visibleClasses, visibleStudents, isReadOnly]);
 
   const handleSpecificDateRecordChange = (dateStr, studentId, field, value) => {
     if (isReadOnly) return;
+    
+    // 1. 로컬 UI 상태 업데이트 (JavaScript 불변성 유지)
     setRecords(prev => {
       const dateRecords = prev[dateStr] || {};
       const studentRecord = dateRecords[studentId] || { progress: 100, remark: '' };
+      
       return { 
         ...prev, 
         [dateStr]: { 
           ...dateRecords, 
-          [studentId]: { ...studentRecord, [field]: value } 
+          [studentId]: { 
+            ...studentRecord, 
+            [field]: value 
+          } 
         } 
       };
     });
+
+    // 2. 서버 부분 업데이트 로직 호출 (동시성 보호)
+    // 예: "records.2026-03-20.student123.progress"
+    const path = `records.${dateStr}.${studentId}.${field}`;
+    updatePartialData(path, value);
   };
 
   const handleRecordChange = (studentId, field, value) => {
@@ -843,6 +921,10 @@ function MainApp({ role, user, setRole, teacherId }) {
     const testData = testRecords[testId];
     const totalQ = Number(testData.totalQ);
 
+    let finalValueToSave = numericValue;
+    let shouldClearRetest = false;
+
+    // 1. 로컬 UI 상태 업데이트 (React 불변성 유지)
     setTestRecords(prev => {
       const prevScores = prev[testId].scores[studentId] || {score: '', retest: ''};
       let newScores = { ...prevScores, [field]: numericValue };
@@ -852,11 +934,24 @@ function MainApp({ role, user, setRole, teacherId }) {
         setTestErrors(e => ({ ...e, [errorKey]: true }));
         setTimeout(() => setTestErrors(e => ({ ...e, [errorKey]: false })), 2500);
         newScores[field] = ''; 
+        finalValueToSave = ''; // 에러 발생 시 빈 값을 서버에 전송
       } else if (field === 'score' && numericValue !== '' && totalQ > 0) {
-        if (numericValue / totalQ >= 0.8) newScores.retest = ''; 
+        if (numericValue / totalQ >= 0.8) {
+          newScores.retest = ''; 
+          shouldClearRetest = true; // 본시험 통과 시 재시험 점수 연쇄 초기화 플래그
+        }
       }
       return { ...prev, [testId]: { ...prev[testId], scores: { ...prev[testId].scores, [studentId]: newScores } } };
     });
+
+    // 2. 서버 부분 업데이트 (Firestore 동시성 보호)
+    const basePath = `testRecords.${testId}.scores.${studentId}`;
+    updatePartialData(`${basePath}.${field}`, finalValueToSave);
+    
+    // 본시험 통과로 인해 재시험 점수가 지워져야 한다면, 해당 필드도 서버에 빈 값으로 업데이트
+    if (shouldClearRetest) {
+      updatePartialData(`${basePath}.retest`, '');
+    }
   };
 
   const calculateTestAverage = (testId) => {
@@ -918,6 +1013,10 @@ function MainApp({ role, user, setRole, teacherId }) {
     const isNumField = field === 'totalQ' || field === 'score' || field === 'retest';
     const finalVal = isNumField ? (value === '' ? '' : Number(value)) : value;
 
+    let finalValueToSave = finalVal;
+    let shouldClearRetest = false;
+
+    // 1. 로컬 UI 상태 업데이트
     setIndividualTestRecords(prev => {
       const testData = prev[testId];
       const totalQ = Number(testData.totalQ);
@@ -929,12 +1028,23 @@ function MainApp({ role, user, setRole, teacherId }) {
               setTestErrors(e => ({ ...e, [errorKey]: true }));
               setTimeout(() => setTestErrors(e => ({ ...e, [errorKey]: false })), 2500);
               newRecord[field] = ''; 
+              finalValueToSave = '';
           } else if (field === 'score') {
-              if (totalQ > 0 && (finalVal / totalQ) >= 0.8) newRecord.retest = '';
+              if (totalQ > 0 && (finalVal / totalQ) >= 0.8) {
+                  newRecord.retest = '';
+                  shouldClearRetest = true;
+              }
           }
       }
       return { ...prev, [testId]: newRecord };
     });
+
+    // 2. 서버 부분 업데이트
+    updatePartialData(`individualTestRecords.${testId}.${field}`, finalValueToSave);
+    
+    if (shouldClearRetest) {
+      updatePartialData(`individualTestRecords.${testId}.retest`, '');
+    }
   };
 
   // ================================================================
@@ -1140,7 +1250,13 @@ function MainApp({ role, user, setRole, teacherId }) {
             <h1 className="text-2xl font-bold flex items-center gap-2"><BookOpen className="text-blue-600"/> 임팩트수학 통합관리</h1>
             <span className="text-xs text-gray-500">{role === 'admin' ? '👑 관리자' : role === 'office' ? '🏢 행정팀' : `👨‍🏫 ${instructors.find(i => i.id === teacherId)?.name || '알 수 없는'} 강사`} 계정 접속중</span>
           </div>
-          <button onClick={() => { setRole(null); localStorage.removeItem('userRole'); localStorage.removeItem('teacherId'); }} className="flex items-center gap-1 text-sm text-gray-500 hover:text-red-500 font-bold"><LogOut size={16}/> 로그아웃</button>
+          {/* 변경된 로그아웃 버튼 로직 */}
+          <button onClick={async () => { 
+            try { await signOut(auth); } catch(e){} 
+            setRole(null); localStorage.removeItem('userRole'); localStorage.removeItem('teacherId'); 
+          }} className="flex items-center gap-1 text-sm text-gray-500 hover:text-red-500 font-bold">
+            <LogOut size={16}/> 로그아웃
+          </button>
         </header>
 
         {isReadOnly && (
