@@ -18,13 +18,15 @@ import { getFirestore, doc, setDoc, getDoc, updateDoc, deleteField } from 'fireb
 // SECTION 1 : Firebase 설정 + 공통 상수 + 유틸 함수
 // ================================================================
 let firebaseConfig;
+// [SECTION 1: 교체할 코드]
 const userActualConfig = {
-  apiKey: "AIzaSyBe6DBEXLKAgYYFLLzYoU6qmrOOZifNcEA",
-  authDomain: "weekly-test-a0afd.firebaseapp.com",
-  projectId: "weekly-test-a0afd",
-  storageBucket: "weekly-test-a0afd.firebasestorage.app",
-  messagingSenderId: "88104324183",
-  appId: "1:88104324183:web:03f2c6bfd53de3c73b2712"
+  apiKey: process.env.REACT_APP_FIREBASE_API_KEY,
+  authDomain: process.env.REACT_APP_FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.REACT_APP_FIREBASE_PROJECT_ID,
+  storageBucket: process.env.REACT_APP_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.REACT_APP_FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.REACT_APP_FIREBASE_APP_ID
+};
 };
 
 if (typeof __firebase_config !== 'undefined') {
