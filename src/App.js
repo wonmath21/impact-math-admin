@@ -8,7 +8,7 @@
 // ║  - Firebase Auth 연동 및 백업 데이터 구조 정규화 완료                  ║
 // ╚══════════════════════════════════════════════════════════════════╝
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Users, BookOpen, Calendar, Plus, Trash2, Edit2, Check, X, AlertCircle, Sparkles, Copy, Loader2, FileText, Download, Settings, ArrowUp, ArrowDown, ArrowUpDown, RefreshCcw, LogOut, Lock, UserCog, ClipboardList, Eye, Upload } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from 'firebase/auth';
@@ -564,9 +564,14 @@ function MainApp({ role, user, setRole, teacherId }) {
   // ================================================================
   // SECTION 7 : 강사 관리 함수들
   // ================================================================
-  const visibleClasses = role === 'teacher' ? classes.filter(c => c.instructorId === teacherId) : classes;
-  const visibleStudents = role === 'teacher' ? students.filter(s => visibleClasses.some(c => c.id === s.classId)) : students;
-
+  const visibleClasses = useMemo(() => 
+    role === 'teacher' ? classes.filter(c => c.instructorId === teacherId) : classes, 
+    [role, classes, teacherId]
+  );
+  const visibleStudents = useMemo(() => 
+    role === 'teacher' ? students.filter(s => visibleClasses.some(c => c.id === s.classId)) : students, 
+    [role, students, visibleClasses]
+  );
   const [newInstName, setNewInstName] = useState('');
   const [newInstId, setNewInstId] = useState('');
 
@@ -784,7 +789,10 @@ function MainApp({ role, user, setRole, teacherId }) {
   };
 
   const selectedDayOfWeek = getLocalDayOfWeek(selectedDate);
-  const targetClasses = visibleClasses.filter(c => c.days.includes(selectedDayOfWeek));
+  const targetClasses = useMemo(() => 
+    visibleClasses.filter(c => c.days.includes(selectedDayOfWeek)), 
+    [visibleClasses, selectedDayOfWeek]
+  );
 
   useEffect(() => {
     if (isReadOnly || !isLoaded) return;
@@ -1139,12 +1147,13 @@ function MainApp({ role, user, setRole, teacherId }) {
     const stdClass = classes.find(c => c.id === student.classId);
     const isIndiv = stdClass?.type === 'individual';
     const tests = [];
-    let currentItemTpl = testItemTemplate;
+    let currentItemTpl = testItemTemplate || DEFAULT_TEST_ITEM_TEMPLATE;
     const currentWeeklyProgress = isIndiv ? (individualWeeklyProgress[student.id] || '') : (classWeeklyProgress[student.classId] || '');
 
     if (isIndiv) {
       currentItemTpl = currentItemTpl.replace(/\n?반 평균 : \[반평균\]/g, '').replace(/\[반평균\]/g, '');
-      Object.values(individualTestRecords).sort((a,b)=>a.date.localeCompare(b.date)).forEach(t => {
+      // 🚨 a.date 또는 b.date가 없을 경우 빈 문자열('')로 대체하여 크래시 방어
+      Object.values(individualTestRecords).sort((a,b)=> (a?.date || '').localeCompare(b?.date || '')).forEach(t => {
         if (t.studentId === student.id && t.date >= reportStartDate && t.date <= reportEndDate) {
           if (t.score !== '') {
             const activeScore = t.retest !== '' && t.retest !== undefined ? Number(t.retest) : Number(t.score);
@@ -1153,9 +1162,10 @@ function MainApp({ role, user, setRole, teacherId }) {
         }
       });
     } else {
-      Object.entries(testRecords).sort(([, a], [, b]) => a.date.localeCompare(b.date)).forEach(([testId, testData]) => {
+      // 🚨 a.date 또는 b.date가 없을 경우 빈 문자열('')로 대체하여 크래시 방어
+      Object.entries(testRecords).sort(([, a], [, b]) => (a?.date || '').localeCompare(b?.date || '')).forEach(([testId, testData]) => {
         if (testData.classId === student.classId && testData.date >= reportStartDate && testData.date <= reportEndDate) {
-          const sInfo = testData.scores[student.id];
+          const sInfo = testData.scores?.[student.id]; // scores 구조가 없는 데이터 방어
           if (sInfo && sInfo.score !== '') {
             const activeScore = sInfo.retest !== '' && sInfo.retest !== undefined ? Number(sInfo.retest) : Number(sInfo.score);
             const classAvgStr = `${calculateTestAverage(testId)} / ${testData.totalQ||'?'}`;
@@ -1171,7 +1181,7 @@ function MainApp({ role, user, setRole, teacherId }) {
     const autoRemark = getAutoAttendanceRemark(student.id);
     const manualRemark = reportRemarks[student.id] !== undefined ? reportRemarks[student.id] : autoRemark;
     
-    return buildReportText(offlineTemplate, currentItemTpl, noTestMessage, student.name, avgProgress, currentWeeklyProgress, manualRemark, tests);
+    return buildReportText(offlineTemplate || DEFAULT_TEMPLATE, currentItemTpl, noTestMessage || DEFAULT_NO_TEST_MSG, student.name || '이름없음', avgProgress, currentWeeklyProgress, manualRemark, tests);
   };
 
   const handleCopy = (text, studentId, progress) => {
@@ -2007,7 +2017,7 @@ function MainApp({ role, user, setRole, teacherId }) {
 
               {reportClassId ? (
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                  {visibleStudents.filter(s => s.classId === reportClassId).sort((a,b) => a.name.localeCompare(b.name, 'ko-KR')).map(student => {
+                  {visibleStudents.filter(s => s.classId === reportClassId).sort((a,b) => (a?.name || '').localeCompare(b?.name || '', 'ko-KR')).map(student => {
                     const isExcluded = excludeFromReport[student.id] || false;
                     const autoRemark = getAutoAttendanceRemark(student.id);
                     const manualRemark = reportRemarks[student.id] !== undefined ? reportRemarks[student.id] : autoRemark;
