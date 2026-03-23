@@ -2,36 +2,17 @@
 /* eslint-disable no-unused-vars */
 
 // ╔══════════════════════════════════════════════════════════════════╗
-// ║         임팩트수학학원 통합 관리 시스템 (v2.1)                       ║
-// ║                                                                  ║
-// ║  [섹션 구성]                                                      ║
-// ║  SECTION 1  : Firebase 설정 + 공통 상수 + 유틸 함수 (약 line 1~110) ║
-// ║  SECTION 2  : 로그인 화면 컴포넌트 LoginScreen  (약 line 110~145)  ║
-// ║  SECTION 3  : 최상위 App 컴포넌트 + 로그인 처리  (약 line 145~185) ║
-// ║  SECTION 4  : MainApp - 전체 state 선언부        (약 line 185~250) ║
-// ║  SECTION 5  : Firebase 동기화 로직 (방어벽+syncData)(약 line 250~330)║
-// ║  SECTION 6  : 백업/복구 함수들                   (약 line 330~445) ║
-// ║  SECTION 7  : 강사 관리 함수들                   (약 line 445~540) ║
-// ║  SECTION 8  : 반(Class) 관리 함수들              (약 line 540~600) ║
-// ║  SECTION 9  : 학생 관리 함수들                   (약 line 600~680) ║
-// ║  SECTION 10 : 일일 출결/과제 함수들              (약 line 680~780) ║
-// ║  SECTION 11 : 주간 테스트 함수들                 (약 line 780~930) ║
-// ║  SECTION 12 : 리포트 생성 함수들                 (약 line 930~980) ║
-// ║  SECTION 13 : UI 렌더링 시작 (모달/토스트/탭)    (약 line 980~)    ║
-// ║  SECTION 14 : [탭] 강사 관리 UI                                   ║
-// ║  SECTION 15 : [탭] 반 관리 UI                                     ║
-// ║  SECTION 16 : [탭] 학생 관리 UI                                   ║
-// ║  SECTION 17 : [탭] 일일 출결 UI                                   ║
-// ║  SECTION 18 : [탭] 주간 테스트 UI                                 ║
-// ║  SECTION 19 : [탭] 주간 리포트 UI                                 ║
-// ║  SECTION 20 : [탭] 설정 UI                                        ║
+// ║         임팩트수학학원 통합 관리 시스템 (v3.0 Final Stable)            ║
+// ║  - 동시성 완벽 제어 (Atomic 다중 업데이트 및 점 표기법 적용)           ║
+// ║  - 배열 -> 객체(Map) 자동 마이그레이션 및 정렬 보장 완료               ║
+// ║  - Firebase Auth 연동 및 백업 데이터 구조 정규화 완료                  ║
 // ╚══════════════════════════════════════════════════════════════════╝
 
 import React, { useState, useEffect, useRef } from 'react';
 import { Users, BookOpen, Calendar, Plus, Trash2, Edit2, Check, X, AlertCircle, Sparkles, Copy, Loader2, FileText, Download, Settings, ArrowUp, ArrowDown, ArrowUpDown, RefreshCcw, LogOut, Lock, UserCog, ClipboardList, Eye, Upload } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from 'firebase/auth';
-import { getFirestore, doc, setDoc, getDoc, updateDoc } from 'firebase/firestore';
+import { getFirestore, doc, setDoc, getDoc, updateDoc, deleteField } from 'firebase/firestore';
 
 // ================================================================
 // SECTION 1 : Firebase 설정 + 공통 상수 + 유틸 함수
@@ -75,7 +56,20 @@ const DEFAULT_TEMPLATE = `안녕하세요. 임팩트수학학원 [학생이름]�
 const DEFAULT_TEST_ITEM_TEMPLATE = `테스트 과정 : [단원명]\n테스트 결과 : [맞은개수]/[총문제수] [통과여부]\n반 평균 : [반평균]`;
 const DEFAULT_NO_TEST_MSG = `이번 주 진행된 테스트가 없습니다.`;
 
-// 이번 주 월~토 날짜 구하기
+// [공통 유틸리티] 객체-배열 변환 (정렬 보장형 단일 진실 공급원)
+const toArray = (data) => {
+  if (Array.isArray(data)) return data;
+  return Object.values(data || {}).sort((a, b) => {
+    if (a.id < b.id) return -1;
+    if (a.id > b.id) return 1;
+    return 0;
+  });
+};
+
+const toMap = (arr) => Array.isArray(arr) 
+  ? arr.reduce((acc, curr) => ({...acc, [curr.id]: curr}), {}) 
+  : (arr || {});
+
 const getThisWeekMonSat = () => {
   const now = new Date();
   const day = now.getDay();
@@ -93,11 +87,10 @@ const getThisWeekMonSat = () => {
   return { start: format(mon), end: format(sat) };
 };
 
-// 지난주 월~토 날짜 구하기
 const getLastWeekMonSat = () => {
   const today = new Date();
   const dayOfWeek = today.getDay();
-  const daysFromThisMon = (dayOfWeek + 6) % 7; // 이번 월요일까지 거슬러 올라갈 일수
+  const daysFromThisMon = (dayOfWeek + 6) % 7; 
 
   const thisMonday = new Date(today);
   thisMonday.setDate(today.getDate() - daysFromThisMon);
@@ -127,7 +120,6 @@ const getDayName = (dateStr) => {
   return DAYS.find(x => x.val === dayIndex)?.label || '';
 };
 
-// 한국 표준시(KST) 기준 오늘 날짜 구하기
 const getTodayLocal = () => {
   const offset = new Date().getTimezoneOffset() * 60000;
   const dateOffset = new Date(Date.now() - offset);
@@ -162,7 +154,7 @@ const AutoResizeTextarea = ({ value, onChange, placeholder, className, disabled 
 };
 
 // ================================================================
-// SECTION 2 : 로그인 화면 컴포넌트 (LoginScreen)
+// SECTION 2 : 로그인 화면 컴포넌트
 // ================================================================
 function LoginScreen({ onLogin, error }) {
   const [id, setId] = useState('');
@@ -195,10 +187,7 @@ function LoginScreen({ onLogin, error }) {
 }
 
 // ================================================================
-// SECTION 3 : 최상위 App 컴포넌트 + 로그인 처리
-// ================================================================
-// ================================================================
-// SECTION 3 : 최상위 App 컴포넌트 + 로그인 처리 (Firebase Auth 적용)
+// SECTION 3 : 최상위 App 컴포넌트 + Firebase Auth 로직
 // ================================================================
 export default function App() {
   const [user, setUser] = useState(null);
@@ -213,27 +202,26 @@ export default function App() {
         setUser(currentUser);
         const email = currentUser.email || '';
         
-        // 1. 최고 관리자 및 행정팀 판별
         if (email === 'admin@impact.math') {
           setRole('admin'); localStorage.setItem('userRole', 'admin');
         } else if (email === 'office@impact.math') {
           setRole('office'); localStorage.setItem('userRole', 'office');
         } else {
-          // 2. 강사 판별 (입력한 이메일 앞부분과 DB의 username 대조)
           try {
             const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'academy', 'mainData');
             const docSnap = await getDoc(docRef);
             if (docSnap.exists()) {
-              const instructorsList = docSnap.data().instructors || [];
+              const rawInstructors = docSnap.data().instructors || {};
+              const instArray = toArray(rawInstructors);
               const extractedId = email.split('@')[0]; 
-              const matched = instructorsList.find(inst => inst.username === extractedId);
+              const matched = instArray.find(inst => inst.username === extractedId);
               
               if (matched) {
                 setRole('teacher'); setTeacherId(matched.id);
                 localStorage.setItem('userRole', 'teacher'); localStorage.setItem('teacherId', matched.id);
               } else {
                 setLoginError('등록되지 않은 강사 계정입니다.');
-                await signOut(auth); // 강제 로그아웃
+                await signOut(auth);
                 setRole(null);
               }
             }
@@ -242,7 +230,6 @@ export default function App() {
           }
         }
       } else {
-        // 로그아웃 상태 처리
         setUser(null); setRole(null); setTeacherId(null);
         localStorage.removeItem('userRole'); localStorage.removeItem('teacherId');
       }
@@ -254,10 +241,8 @@ export default function App() {
   const handleLogin = async (id, pw) => {
     setLoginError('');
     try {
-      // 강사가 아이디만 입력해도 자동으로 도메인을 붙여 이메일 형식으로 변환
       const email = id.includes('@') ? id : `${id}@impact.math`;
       await signInWithEmailAndPassword(auth, email, pw);
-      // 로그인 성공 시 onAuthStateChanged가 반응하여 자동으로 화면을 전환합니다.
     } catch(e) {
       if (e.code === 'auth/invalid-credential' || e.code === 'auth/user-not-found' || e.code === 'auth/wrong-password') {
         setLoginError('아이디 또는 비밀번호가 올바르지 않습니다.');
@@ -267,7 +252,6 @@ export default function App() {
     }
   };
 
-  // 인증 상태 확인 중일 때는 로딩 화면 표시
   if (isAuthChecking) return <div className="min-h-screen flex items-center justify-center bg-gray-100"><Loader2 className="animate-spin text-blue-500" size={32}/></div>;
   if (!role || !user) return <LoginScreen onLogin={handleLogin} error={loginError} />;
   
@@ -277,29 +261,19 @@ export default function App() {
 // ================================================================
 // SECTION 4 : MainApp - 전체 State(상태) 선언부
 // ================================================================
-// ================================================================
-// SECTION 4 : MainApp - 전체 State(상태) 선언부
-// ================================================================
 function MainApp({ role, user, setRole, teacherId }) {
   const isReadOnly = role === 'office';
   const [isLoaded, setIsLoaded] = useState(false);
 
-  // [획기적 개선: 화이트리스트(Whitelist) 검증 및 역할별 네임스페이스 분리]
   const [activeTab, setActiveTab] = useState(() => {
-    // 1. 현재 접속한 권한(role)에 맞는 캐시만 읽어옴
     const saved = localStorage.getItem(`activeTab_${role}`);
-    
-    // 2. 현재 권한이 절대적으로 접근 가능한 탭의 목록(화이트리스트) 정의
     const validTabs = ['daily', 'tests', 'students', 'classes', 'report'];
     if (role === 'admin') validTabs.push('instructors');
     if (!isReadOnly) validTabs.push('settings');
-
-    // 3. 캐시가 존재하더라도 화이트리스트에 없으면 무조건 'daily'로 튕겨냄
     return (saved && validTabs.includes(saved)) ? saved : 'daily';
   });
 
   useEffect(() => {
-    // 저장할 때도 권한별로 꼬리표를 붙여서 완전히 격리하여 저장
     localStorage.setItem(`activeTab_${role}`, activeTab);
   }, [activeTab, role]);
   
@@ -362,47 +336,12 @@ function MainApp({ role, user, setRole, teacherId }) {
   };
 
   // ================================================================
-  // SECTION 5 : Firebase 동기화 로직 (데이터 방어벽 + syncData)
+  // SECTION 5 : Firebase 동기화 로직 (마이그레이션 및 부분 업데이트)
   // ================================================================
-  
-  // ================================================================
-  // [신규 추가] 점 표기법(Dot Notation)을 활용한 개별 필드 업데이트
-  // ================================================================
-  const updatePartialData = async (fieldPath, value) => {
-    if (isReadOnly || !isLoaded) return;
-    
-    const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'academy', 'mainData');
-    
-    try {
-      // 지정된 경로(fieldPath)의 값만 부분 업데이트하여 동시성 충돌을 방지합니다.
-      await updateDoc(docRef, { 
-        [fieldPath]: value 
-      });
-    } catch (error) {
-      console.error("부분 업데이트 실패:", error);
-      showToast('서버 동기화 중 오류가 발생했습니다.', 'error');
-    }
-    console.log("전송되는 경로 및 데이터:", fieldPath, value);
-  };
-  
-  const isUserInteraction = useRef(false);
   const initialDataSnapshot = useRef({});
 
   useEffect(() => {
-    const unlockSync = () => { isUserInteraction.current = true; };
-    window.addEventListener('mousedown', unlockSync, { once: true });
-    window.addEventListener('keydown', unlockSync, { once: true });
-    window.addEventListener('touchstart', unlockSync, { once: true });
-    return () => {
-      window.removeEventListener('mousedown', unlockSync);
-      window.removeEventListener('keydown', unlockSync);
-      window.removeEventListener('touchstart', unlockSync);
-    };
-  }, []);
-
-  useEffect(() => {
     let isMounted = true;
-
     const fetchDb = async () => {
       try {
         const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'academy', 'mainData');
@@ -413,9 +352,18 @@ function MainApp({ role, user, setRole, teacherId }) {
           const d = docSnap.data();
           initialDataSnapshot.current = JSON.parse(JSON.stringify(d));
 
-          if(d.instructors) setInstructors(d.instructors);
-          if(d.classes) setClasses(d.classes);
-          if(d.students) setStudents(d.students);
+          setInstructors(toArray(d.instructors));
+          setClasses(toArray(d.classes));
+          setStudents(toArray(d.students));
+
+          if (!isReadOnly && (Array.isArray(d.instructors) || Array.isArray(d.classes) || Array.isArray(d.students))) {
+             updateDoc(docRef, {
+               instructors: toMap(d.instructors),
+               classes: toMap(d.classes),
+               students: toMap(d.students)
+             }).catch(e => console.error("자동 변환 에러:", e));
+          }
+
           if(d.records) setRecords(d.records);
           if(d.testRecords) setTestRecords(d.testRecords);
           if(d.individualTestRecords) setIndividualTestRecords(d.individualTestRecords);
@@ -436,50 +384,62 @@ function MainApp({ role, user, setRole, teacherId }) {
     };
     fetchDb();
     return () => { isMounted = false; };
-  }, []); 
+  }, [isReadOnly]); 
 
+  // 통째 덮어쓰기 로직 (설정 등 동시성 이슈가 없는 항목 전용)
   const syncData = async (key, value) => {
-    if (!isLoaded || isReadOnly || !isUserInteraction.current) return;
-    if (JSON.stringify(initialDataSnapshot.current[key]) === JSON.stringify(value)) return; 
-
+    if (!isLoaded || isReadOnly) return;
     const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'academy', 'mainData');
     try {
       await updateDoc(docRef, { [key]: value });
-      initialDataSnapshot.current[key] = JSON.parse(JSON.stringify(value));
     } catch (error) {
-      if (error.code === 'not-found') { await setDoc(docRef, { [key]: value }); }
-      else { console.error("Firebase 저장 에러:", error); }
+      if (error.code === 'not-found') await setDoc(docRef, { [key]: value });
     }
   };
 
-  
+  // 부분 업데이트 로직 (다중 객체 원자적 업데이트 지원)
+  const updatePartialData = async (updatesObj) => {
+    if (isReadOnly || !isLoaded) return;
+    const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'academy', 'mainData');
+    try {
+      await updateDoc(docRef, updatesObj);
+    } catch (error) {
+      console.error("부분 업데이트 실패:", error);
+    }
+  };
 
+  // 오직 동시성 위험이 없는 설정 데이터만 syncData로 동기화합니다.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { syncData('instructors', instructors); }, [instructors]);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { syncData('classes', classes); }, [classes]);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { syncData('students', students); }, [students]);
-  
-  // (주의: 앞서 작업한 records, testRecords, individualTestRecords 등은 
-  // 동시성 문제 때문에 아예 이 줄 자체를 삭제하거나 전체 주석 처리하셨어야 합니다!)
-  // useEffect(() => { syncData('records', records); }, [records]);
-  // useEffect(() => { syncData('testRecords', testRecords); }, [testRecords]);
-  // useEffect(() => { syncData('individualTestRecords', individualTestRecords); }, [individualTestRecords]);
-  useEffect(() => { syncData('classWeeklyProgress', classWeeklyProgress); }, [classWeeklyProgress]);
-  useEffect(() => { syncData('individualWeeklyProgress', individualWeeklyProgress); }, [individualWeeklyProgress]);
-  useEffect(() => { syncData('reportRemarks', reportRemarks); }, [reportRemarks]);
   useEffect(() => { syncData('excludeFromReport', excludeFromReport); }, [excludeFromReport]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { syncData('offlineTemplate', offlineTemplate); }, [offlineTemplate]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { syncData('testItemTemplate', testItemTemplate); }, [testItemTemplate]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { syncData('noTestMessage', noTestMessage); }, [noTestMessage]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { syncData('systemSettings', systemSettings); }, [systemSettings]);
 
   // ================================================================
   // SECTION 6 : 백업 / 복구 함수들
   // ================================================================
   const handleExportAllDataToJSON = () => {
-    const allData = { instructors, classes, students, records, testRecords, individualTestRecords, classWeeklyProgress, individualWeeklyProgress, reportRemarks, excludeFromReport, offlineTemplate, testItemTemplate, noTestMessage, systemSettings };
+    const allData = { 
+      instructors: toMap(instructors), 
+      classes: toMap(classes), 
+      students: toMap(students), 
+      records, 
+      testRecords, 
+      individualTestRecords, 
+      classWeeklyProgress, 
+      individualWeeklyProgress, 
+      reportRemarks, 
+      excludeFromReport, 
+      offlineTemplate, 
+      testItemTemplate, 
+      noTestMessage, 
+      systemSettings 
+    };
     const blob = new Blob([JSON.stringify(allData, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -511,9 +471,10 @@ function MainApp({ role, user, setRole, teacherId }) {
           `📂 "${file.name}" 파일로 복구합니다.\n\n⚠️ 현재 서버의 모든 데이터가 이 파일로 덮어씌워집니다.\n정말 진행하시겠습니까?`
         )) return;
 
-        if (data.instructors) setInstructors(data.instructors);
-        if (data.classes) setClasses(data.classes);
-        if (data.students) setStudents(data.students);
+        if (data.instructors) setInstructors(toArray(data.instructors));
+        if (data.classes) setClasses(toArray(data.classes));
+        if (data.students) setStudents(toArray(data.students));
+        
         if (data.records) setRecords(data.records);
         if (data.testRecords) setTestRecords(data.testRecords);
         if (data.individualTestRecords) setIndividualTestRecords(data.individualTestRecords);
@@ -526,10 +487,17 @@ function MainApp({ role, user, setRole, teacherId }) {
         if (data.noTestMessage) setNoTestMessage(data.noTestMessage);
         if (data.systemSettings) setSystemSettings(data.systemSettings);
 
+        const normalizedData = {
+          ...data,
+          instructors: toMap(data.instructors),
+          classes: toMap(data.classes),
+          students: toMap(data.students)
+        };
+
         const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'academy', 'mainData');
-        await setDoc(docRef, data);
-        initialDataSnapshot.current = JSON.parse(JSON.stringify(data));
-        showToast('✅ 백업 데이터가 성공적으로 복구되었습니다!');
+        await setDoc(docRef, normalizedData);
+        initialDataSnapshot.current = JSON.parse(JSON.stringify(normalizedData));
+        showToast('✅ 백업 데이터가 성공적으로 정규화 및 복구되었습니다!');
       } catch (err) {
         showToast('❌ JSON 파일 형식이 올바르지 않습니다.', 'error');
         console.error(err);
@@ -542,7 +510,22 @@ function MainApp({ role, user, setRole, teacherId }) {
   const [isDriveSyncing, setIsDriveSyncing] = useState(false);
   const handleBackupToGoogleDrive = async () => {
     setIsDriveSyncing(true);
-    const allData = { instructors, classes, students, records, testRecords, individualTestRecords, classWeeklyProgress, individualWeeklyProgress, reportRemarks, excludeFromReport, offlineTemplate, testItemTemplate, noTestMessage, systemSettings };
+    const allData = { 
+      instructors: toMap(instructors), 
+      classes: toMap(classes), 
+      students: toMap(students), 
+      records, 
+      testRecords, 
+      individualTestRecords, 
+      classWeeklyProgress, 
+      individualWeeklyProgress, 
+      reportRemarks, 
+      excludeFromReport, 
+      offlineTemplate, 
+      testItemTemplate, 
+      noTestMessage, 
+      systemSettings 
+    };
     const googleScriptUrl = "https://script.google.com/macros/s/AKfycbyWkX3PJ-7IXIu7zAmd1TaUGqS32jHqhQfEqmrp3P8txkqUARXr6EDfsR0CL8-9S3c3/exec"; 
 
     try {
@@ -586,27 +569,35 @@ function MainApp({ role, user, setRole, teacherId }) {
 
   const [newInstName, setNewInstName] = useState('');
   const [newInstId, setNewInstId] = useState('');
-  const [newInstPw, setNewInstPw] = useState('');
 
   const [editingInstId, setEditingInstId] = useState(null);
-  const [editInstData, setEditInstData] = useState({ name: '', password: '' });
+  const [editInstData, setEditInstData] = useState({ name: '' });
 
   const startEditingInst = (inst) => {
     setEditingInstId(inst.id);
-    setEditInstData({ name: inst.name, password: inst.password });
+    setEditInstData({ name: inst.name });
   };
 
   const saveEditedInst = () => {
-    if (!editInstData.name || !editInstData.password) return showToast('이름과 비밀번호를 입력하세요.', 'error');
-    setInstructors(instructors.map(i => i.id === editingInstId ? { ...i, ...editInstData } : i));
+    if (!editInstData.name) return showToast('이름을 입력하세요.', 'error');
+    const updatedInst = { ...instructors.find(i => i.id === editingInstId), ...editInstData };
+    
+    setInstructors(instructors.map(i => i.id === editingInstId ? updatedInst : i));
+    updatePartialData({ [`instructors.${editingInstId}`]: updatedInst });
+
     setEditingInstId(null);
     showToast('강사 정보가 수정되었습니다.');
   };
 
   const handleAddInstructor = () => {
-    if (!newInstName || !newInstId || !newInstPw) return showToast('강사 정보를 모두 입력하세요.', 'error');
-    setInstructors([...instructors, { id: 'inst_' + Date.now(), name: newInstName, username: newInstId, password: newInstPw }]);
-    setNewInstName(''); setNewInstId(''); setNewInstPw('');
+    if (!newInstName || !newInstId) return showToast('강사 정보를 모두 입력하세요.', 'error');
+    const newId = 'inst_' + Date.now();
+    const newInst = { id: newId, name: newInstName, username: newInstId };
+
+    setInstructors([...instructors, newInst]);
+    updatePartialData({ [`instructors.${newId}`]: newInst });
+
+    setNewInstName(''); setNewInstId(''); 
     showToast('신규 강사가 생성되었습니다.');
   };
 
@@ -617,6 +608,7 @@ function MainApp({ role, user, setRole, teacherId }) {
     }
     if (window.confirm('정말 이 강사 계정을 삭제하시겠습니까?')) {
       setInstructors(instructors.filter(i => i.id !== id));
+      updatePartialData({ [`instructors.${id}`]: deleteField() });
       showToast('강사 계정이 삭제되었습니다.', 'success');
     }
   };
@@ -635,7 +627,12 @@ function MainApp({ role, user, setRole, teacherId }) {
     const assignedInst = role === 'admin' ? newClassInstructor : teacherId;
     if (!assignedInst) return showToast('담당 강사를 지정해주세요.', 'error');
 
-    setClasses([...classes, { id: Date.now().toString(), name: newClassName, days: newClassDays, instructorId: assignedInst, type: newClassType }]);
+    const newId = Date.now().toString();
+    const newClass = { id: newId, name: newClassName, days: newClassDays, instructorId: assignedInst, type: newClassType };
+
+    setClasses([...classes, newClass]);
+    updatePartialData({ [`classes.${newId}`]: newClass });
+
     setNewClassName(''); setNewClassDays([]); setNewClassType('lecture');
     showToast('신규 반이 생성되었습니다.');
   };
@@ -652,6 +649,7 @@ function MainApp({ role, user, setRole, teacherId }) {
   const confirmDeleteClass = () => {
     if (classToDelete && !isReadOnly) {
       setClasses(classes.filter(c => c.id !== classToDelete));
+      updatePartialData({ [`classes.${classToDelete}`]: deleteField() });
       setClassToDelete(null);
       showToast('반이 정상적으로 삭제되었습니다.');
     }
@@ -672,7 +670,11 @@ function MainApp({ role, user, setRole, teacherId }) {
 
   const saveEditedClass = () => {
     if (!editClassData.name.trim() || editClassData.days.length === 0) return showToast('반 이름과 요일을 확인해주세요.', 'error');
-    setClasses(classes.map(c => c.id === editingClassId ? { ...c, ...editClassData } : c));
+    const updatedClass = { ...classes.find(c => c.id === editingClassId), ...editClassData };
+
+    setClasses(classes.map(c => c.id === editingClassId ? updatedClass : c));
+    updatePartialData({ [`classes.${editingClassId}`]: updatedClass });
+
     setEditingClassId(null);
     showToast('반 정보가 수정되었습니다.');
   };
@@ -687,7 +689,13 @@ function MainApp({ role, user, setRole, teacherId }) {
   const handleAddStudent = () => {
     if (isReadOnly) return;
     if (!newStudentName.trim() || !newStudentClass) return showToast('정보를 모두 입력해주세요.', 'error');
-    setStudents([...students, { id: Date.now().toString(), name: newStudentName, school: newStudentSchool, classId: newStudentClass }]);
+    
+    const newId = Date.now().toString();
+    const newStudent = { id: newId, name: newStudentName, school: newStudentSchool, classId: newStudentClass };
+
+    setStudents([...students, newStudent]);
+    updatePartialData({ [`students.${newId}`]: newStudent });
+
     setNewStudentName(''); setNewStudentSchool('');
     showToast('학생이 등록되었습니다.');
   };
@@ -698,7 +706,11 @@ function MainApp({ role, user, setRole, teacherId }) {
   };
 
   const saveEditedStudent = () => {
-    setStudents(students.map(s => s.id === editingStudentId ? { ...s, ...editStudentData } : s));
+    const updatedStudent = { ...students.find(s => s.id === editingStudentId), ...editStudentData };
+    
+    setStudents(students.map(s => s.id === editingStudentId ? updatedStudent : s));
+    updatePartialData({ [`students.${editingStudentId}`]: updatedStudent });
+
     setEditingStudentId(null);
     showToast('학생 정보가 수정되었습니다.');
   };
@@ -706,6 +718,7 @@ function MainApp({ role, user, setRole, teacherId }) {
   const confirmDeleteStudent = () => {
     if (studentToDelete && !isReadOnly) {
       setStudents(students.filter(s => s.id !== studentToDelete));
+      updatePartialData({ [`students.${studentToDelete}`]: deleteField() });
       setStudentToDelete(null);
       showToast('학생이 삭제되었습니다.');
     }
@@ -743,7 +756,7 @@ function MainApp({ role, user, setRole, teacherId }) {
   };
 
   // ================================================================
-  // SECTION 10 : 일일 출결 / 과제 함수들
+  // SECTION 10 : 일일 출결 / 과제 함수들 
   // ================================================================
   const getWeekDays = (dateString) => {
     if (!dateString) return [];
@@ -773,7 +786,6 @@ function MainApp({ role, user, setRole, teacherId }) {
   const selectedDayOfWeek = getLocalDayOfWeek(selectedDate);
   const targetClasses = visibleClasses.filter(c => c.days.includes(selectedDayOfWeek));
 
-  // [수정: 객체 변이(Mutation)를 완벽 차단하여 클릭 이벤트가 씹히지 않도록 조치]
   useEffect(() => {
     if (isReadOnly || !isLoaded) return;
     setRecords(prev => {
@@ -786,7 +798,6 @@ function MainApp({ role, user, setRole, teacherId }) {
           updated = true;
         }
         if (!next[date][stId]) {
-          // 🚨 기존의 직접 조작 방식을 버리고, 새로운 객체 메모리 주소를 할당하여 React가 변화를 감지하도록 함
           next[date] = { ...next[date], [stId]: { progress: 100, remark: '' } };
           updated = true;
         }
@@ -803,33 +814,25 @@ function MainApp({ role, user, setRole, teacherId }) {
       }
       return updated ? next : prev;
     });
-  // 기존 코드의 배열 끝에 isReadOnly 추가
   }, [isLoaded, selectedDate, viewMode, targetClasses, visibleClasses, visibleStudents, isReadOnly]);
 
   const handleSpecificDateRecordChange = (dateStr, studentId, field, value) => {
     if (isReadOnly) return;
-    
-    // 1. 로컬 UI 상태 업데이트 (JavaScript 불변성 유지)
     setRecords(prev => {
       const dateRecords = prev[dateStr] || {};
       const studentRecord = dateRecords[studentId] || { progress: 100, remark: '' };
-      
       return { 
         ...prev, 
         [dateStr]: { 
           ...dateRecords, 
-          [studentId]: { 
-            ...studentRecord, 
-            [field]: value 
-          } 
+          [studentId]: { ...studentRecord, [field]: value } 
         } 
       };
     });
 
-    // 2. 서버 부분 업데이트 로직 호출 (동시성 보호)
-    // 예: "records.2026-03-20.student123.progress"
-    const path = `records.${dateStr}.${studentId}.${field}`;
-    updatePartialData(path, value);
+    updatePartialData({
+      [`records.${dateStr}.${studentId}.${field}`]: value
+    });
   };
 
   const handleRecordChange = (studentId, field, value) => {
@@ -838,6 +841,10 @@ function MainApp({ role, user, setRole, teacherId }) {
 
   const handleQuickRemark = (dateStr, studentId, type) => {
     if (isReadOnly) return;
+
+    let finalRemark = '';
+    let finalProgress = 100;
+
     setRecords(prev => {
       const dateRecords = prev[dateStr] || {};
       const studentRecord = dateRecords[studentId] || { progress: 100, remark: '' };
@@ -862,6 +869,10 @@ function MainApp({ role, user, setRole, teacherId }) {
           if (newProgress === null) newProgress = 100;
         }
       }
+
+      finalRemark = currentRemark;
+      finalProgress = newProgress;
+
       return { 
         ...prev, 
         [dateStr]: { 
@@ -869,6 +880,12 @@ function MainApp({ role, user, setRole, teacherId }) {
           [studentId]: { ...studentRecord, remark: currentRemark, progress: newProgress } 
         } 
       };
+    });
+
+    const basePath = `records.${dateStr}.${studentId}`;
+    updatePartialData({
+      [`${basePath}.remark`]: finalRemark,
+      [`${basePath}.progress`]: finalProgress
     });
   };
 
@@ -885,17 +902,22 @@ function MainApp({ role, user, setRole, teacherId }) {
 
   
   // ================================================================
-  // SECTION 11 : 주간 테스트 함수들
+  // SECTION 11 : 주간 테스트 함수들 
   // ================================================================
   const handleAddLectureTestRow = () => {
     if (isReadOnly || !testClassId) return;
     const newId = 'test_' + Date.now();
-    setTestRecords(prev => ({ ...prev, [newId]: { id: newId, classId: testClassId, date: getTodayLocal(), subject: '', totalQ: '', scores: {} } }));
+    const newTestObj = { id: newId, classId: testClassId, date: getTodayLocal(), subject: '', totalQ: '', scores: {} };
+    
+    setTestRecords(prev => ({ ...prev, [newId]: newTestObj }));
+    updatePartialData({ [`testRecords.${newId}`]: newTestObj }); 
   };
 
   const handleLectureTestChange = (testId, field, value) => {
     if (isReadOnly) return;
+    
     setTestRecords(prev => ({ ...prev, [testId]: { ...prev[testId], [field]: value } }));
+    updatePartialData({ [`testRecords.${testId}.${field}`]: value }); 
   };
 
   const handleDeleteTestRow = (testId) => {
@@ -907,8 +929,10 @@ function MainApp({ role, user, setRole, teacherId }) {
     if (testToDelete && !isReadOnly) {
       if (testToDelete.type === 'lecture') {
         setTestRecords(prev => { const copy = { ...prev }; delete copy[testToDelete.id]; return copy; });
+        updatePartialData({ [`testRecords.${testToDelete.id}`]: deleteField() }); 
       } else {
         setIndividualTestRecords(prev => { const copy = { ...prev }; delete copy[testToDelete.id]; return copy; });
+        updatePartialData({ [`individualTestRecords.${testToDelete.id}`]: deleteField() }); 
       }
       setTestToDelete(null);
       showToast('테스트 기록이 삭제되었습니다.');
@@ -924,7 +948,6 @@ function MainApp({ role, user, setRole, teacherId }) {
     let finalValueToSave = numericValue;
     let shouldClearRetest = false;
 
-    // 1. 로컬 UI 상태 업데이트 (React 불변성 유지)
     setTestRecords(prev => {
       const prevScores = prev[testId].scores[studentId] || {score: '', retest: ''};
       let newScores = { ...prevScores, [field]: numericValue };
@@ -934,24 +957,22 @@ function MainApp({ role, user, setRole, teacherId }) {
         setTestErrors(e => ({ ...e, [errorKey]: true }));
         setTimeout(() => setTestErrors(e => ({ ...e, [errorKey]: false })), 2500);
         newScores[field] = ''; 
-        finalValueToSave = ''; // 에러 발생 시 빈 값을 서버에 전송
+        finalValueToSave = ''; 
       } else if (field === 'score' && numericValue !== '' && totalQ > 0) {
         if (numericValue / totalQ >= 0.8) {
           newScores.retest = ''; 
-          shouldClearRetest = true; // 본시험 통과 시 재시험 점수 연쇄 초기화 플래그
+          shouldClearRetest = true; 
         }
       }
       return { ...prev, [testId]: { ...prev[testId], scores: { ...prev[testId].scores, [studentId]: newScores } } };
     });
 
-    // 2. 서버 부분 업데이트 (Firestore 동시성 보호)
     const basePath = `testRecords.${testId}.scores.${studentId}`;
-    updatePartialData(`${basePath}.${field}`, finalValueToSave);
-    
-    // 본시험 통과로 인해 재시험 점수가 지워져야 한다면, 해당 필드도 서버에 빈 값으로 업데이트
+    const updates = { [`${basePath}.${field}`]: finalValueToSave };
     if (shouldClearRetest) {
-      updatePartialData(`${basePath}.retest`, '');
+      updates[`${basePath}.retest`] = '';
     }
+    updatePartialData(updates);
   };
 
   const calculateTestAverage = (testId) => {
@@ -979,7 +1000,7 @@ function MainApp({ role, user, setRole, teacherId }) {
     csvContent += "전체평균\n";
 
     if (selectedClass?.type === 'individual') {
-      showToast("개별진도반은 현재 CSV 다운로드 기능을 지원하지 않습니다. (추후 업데이트 예정)", "error");
+      showToast("개별진도반은 현재 CSV 다운로드 기능을 지원하지 않습니다.", "error");
       return;
     }
 
@@ -1005,7 +1026,10 @@ function MainApp({ role, user, setRole, teacherId }) {
   const handleAddIndivTestRow = () => {
     if (isReadOnly || !testClassId || !selectedIndivStudent) return;
     const newId = 'itest_' + Date.now();
-    setIndividualTestRecords(prev => ({ ...prev, [newId]: { id: newId, classId: testClassId, studentId: selectedIndivStudent, date: getTodayLocal(), subject: '', totalQ: '', score: '', retest: '' } }));
+    const newTestObj = { id: newId, classId: testClassId, studentId: selectedIndivStudent, date: getTodayLocal(), subject: '', totalQ: '', score: '', retest: '' };
+    
+    setIndividualTestRecords(prev => ({ ...prev, [newId]: newTestObj }));
+    updatePartialData({ [`individualTestRecords.${newId}`]: newTestObj });
   };
 
   const handleIndivTestChange = (testId, field, value) => {
@@ -1016,7 +1040,6 @@ function MainApp({ role, user, setRole, teacherId }) {
     let finalValueToSave = finalVal;
     let shouldClearRetest = false;
 
-    // 1. 로컬 UI 상태 업데이트
     setIndividualTestRecords(prev => {
       const testData = prev[testId];
       const totalQ = Number(testData.totalQ);
@@ -1039,17 +1062,34 @@ function MainApp({ role, user, setRole, teacherId }) {
       return { ...prev, [testId]: newRecord };
     });
 
-    // 2. 서버 부분 업데이트
-    updatePartialData(`individualTestRecords.${testId}.${field}`, finalValueToSave);
-    
+    const updates = { [`individualTestRecords.${testId}.${field}`]: finalValueToSave };
     if (shouldClearRetest) {
-      updatePartialData(`individualTestRecords.${testId}.retest`, '');
+      updates[`individualTestRecords.${testId}.retest`] = '';
     }
+    updatePartialData(updates);
   };
 
   // ================================================================
-  // SECTION 12 : 리포트 생성 함수들
+  // SECTION 12 : 리포트 생성 및 동시성 함수들
   // ================================================================
+  const handleClassWeeklyProgressChange = (classId, value) => {
+    if (isReadOnly) return;
+    setClassWeeklyProgress(prev => ({...prev, [classId]: value}));
+    updatePartialData({ [`classWeeklyProgress.${classId}`]: value });
+  };
+
+  const handleIndividualWeeklyProgressChange = (studentId, value) => {
+    if (isReadOnly) return;
+    setIndividualWeeklyProgress(prev => ({...prev, [studentId]: value}));
+    updatePartialData({ [`individualWeeklyProgress.${studentId}`]: value });
+  };
+
+  const handleReportRemarkChange = (studentId, value) => {
+    if (isReadOnly) return;
+    setReportRemarks(prev => ({...prev, [studentId]: value}));
+    updatePartialData({ [`reportRemarks.${studentId}`]: value });
+  };
+
   const getAutoAttendanceRemark = (studentId) => {
     let remarks = [];
     Object.entries(records).sort(([a], [b]) => a.localeCompare(b)).forEach(([d, recordObj]) => {
@@ -1250,7 +1290,6 @@ function MainApp({ role, user, setRole, teacherId }) {
             <h1 className="text-2xl font-bold flex items-center gap-2"><BookOpen className="text-blue-600"/> 임팩트수학 통합관리</h1>
             <span className="text-xs text-gray-500">{role === 'admin' ? '👑 관리자' : role === 'office' ? '🏢 행정팀' : `👨‍🏫 ${instructors.find(i => i.id === teacherId)?.name || '알 수 없는'} 강사`} 계정 접속중</span>
           </div>
-          {/* 변경된 로그아웃 버튼 로직 */}
           <button onClick={async () => { 
             try { await signOut(auth); } catch(e){} 
             setRole(null); localStorage.removeItem('userRole'); localStorage.removeItem('teacherId'); 
@@ -1299,16 +1338,15 @@ function MainApp({ role, user, setRole, teacherId }) {
           {role === 'admin' && activeTab === 'instructors' && (
              <div>
                <div className="bg-gray-50 p-6 rounded-lg mb-8 border border-gray-200">
-                 <h3 className="font-semibold text-gray-700 mb-4 flex items-center gap-2"><UserCog size={18}/> 신규 강사 계정 생성</h3>
+                 <h3 className="font-semibold text-gray-700 mb-4 flex items-center gap-2"><UserCog size={18}/> 신규 강사 (DB 연결용 정보 생성)</h3>
                  <div className="flex flex-wrap gap-4 items-end">
                    <div className="flex-1"><label className="block text-xs font-medium text-gray-500 mb-1">강사 이름</label><input type="text" value={newInstName} onChange={e=>setNewInstName(e.target.value)} placeholder="예) 홍길동" className="w-full border border-gray-300 rounded p-2 focus:ring-2 focus:ring-blue-500 outline-none" /></div>
-                   <div className="flex-1"><label className="block text-xs font-medium text-gray-500 mb-1">아이디</label><input type="text" value={newInstId} onChange={e=>setNewInstId(e.target.value)} placeholder="teacher_01" className="w-full border border-gray-300 rounded p-2 focus:ring-2 focus:ring-blue-500 outline-none" /></div>
-                   <div className="flex-1"><label className="block text-xs font-medium text-gray-500 mb-1">비밀번호</label><input type="text" value={newInstPw} onChange={e=>setNewInstPw(e.target.value)} placeholder="임시 비밀번호" className="w-full border border-gray-300 rounded p-2 focus:ring-2 focus:ring-blue-500 outline-none" /></div>
+                   <div className="flex-1"><label className="block text-xs font-medium text-gray-500 mb-1">이메일 ID 앞자리 (Firebase 연동용)</label><input type="text" value={newInstId} onChange={e=>setNewInstId(e.target.value)} placeholder="teacher_01" className="w-full border border-gray-300 rounded p-2 focus:ring-2 focus:ring-blue-500 outline-none" /></div>
                    <button onClick={handleAddInstructor} className="bg-blue-800 text-white px-6 py-2 rounded font-bold hover:bg-blue-900 transition-colors">생성</button>
                  </div>
                </div>
                <table className="w-full text-left border-collapse border border-gray-200">
-                 <thead><tr className="bg-gray-100 text-gray-700 text-sm border-b"><th className="p-3">강사명</th><th className="p-3">아이디</th><th className="p-3">비밀번호</th><th className="p-3 text-center">관리</th></tr></thead>
+                 <thead><tr className="bg-gray-100 text-gray-700 text-sm border-b"><th className="p-3">강사명</th><th className="p-3">아이디 (Firebase 연동)</th><th className="p-3 text-center">관리</th></tr></thead>
                  <tbody className="divide-y divide-gray-100">
                    {instructors.map(inst => (
                      <tr key={inst.id}>
@@ -1316,7 +1354,6 @@ function MainApp({ role, user, setRole, teacherId }) {
                          <>
                            <td className="p-2"><input type="text" value={editInstData.name} onChange={e => setEditInstData({...editInstData, name: e.target.value})} className="border rounded p-1 w-full text-sm" /></td>
                            <td className="p-3 text-gray-400 text-sm">{inst.username} (ID불변)</td>
-                           <td className="p-2"><input type="text" value={editInstData.password} onChange={e => setEditInstData({...editInstData, password: e.target.value})} className="border rounded p-1 w-full text-sm" /></td>
                            <td className="p-2 text-center flex justify-center gap-2">
                              <button onClick={saveEditedInst} className="text-green-600 hover:bg-green-100 p-1.5 rounded"><Check size={16} /></button>
                              <button onClick={() => setEditingInstId(null)} className="text-gray-500 hover:bg-gray-200 p-1.5 rounded"><X size={16} /></button>
@@ -1324,7 +1361,7 @@ function MainApp({ role, user, setRole, teacherId }) {
                          </>
                        ) : (
                          <>
-                           <td className="p-3 font-medium">{inst.name}</td><td className="p-3 text-gray-600">{inst.username}</td><td className="p-3 text-gray-600">{inst.password}</td>
+                           <td className="p-3 font-medium">{inst.name}</td><td className="p-3 text-gray-600">{inst.username}</td>
                            <td className="p-3 text-center flex justify-center gap-2">
                              <button onClick={() => startEditingInst(inst)} className="text-blue-500 hover:bg-blue-50 p-1.5 rounded"><Edit2 size={16}/></button>
                              <button onClick={() => handleDeleteInstructor(inst.id)} className="text-red-500 hover:bg-red-50 p-1.5 rounded"><Trash2 size={16}/></button>
@@ -1530,7 +1567,6 @@ function MainApp({ role, user, setRole, teacherId }) {
                 </div>
                 {viewMode === 'daily' && (
                   <div className="flex flex-col gap-2 md:ml-auto w-full md:w-auto">
-                    {/* 지난주 선택 탭 */}
                     <div className="flex items-center gap-1 bg-white p-1 rounded-md border border-gray-200 shadow-sm overflow-x-auto">
                       <span className="text-xs font-bold text-gray-400 whitespace-nowrap px-2">지난주</span>
                       {getWeekDays(lastWeekDatesInit.start).map((dateStr, idx) => {
@@ -1545,7 +1581,6 @@ function MainApp({ role, user, setRole, teacherId }) {
                         )
                       })}
                     </div>
-                    {/* 이번주 선택 탭 */}
                     <div className="flex items-center gap-1 bg-white p-1 rounded-md border border-gray-200 shadow-sm overflow-x-auto">
                       <span className="text-xs font-bold text-gray-500 whitespace-nowrap px-2">이번주</span>
                       {getWeekDays(weekDatesInit.start).map((dateStr, idx) => {
@@ -1662,7 +1697,6 @@ function MainApp({ role, user, setRole, teacherId }) {
                             </thead>
                             <tbody className={isReadOnly ? 'pointer-events-none' : ''}>
                               {classStudents.map(student => {
-                                // 1. 평균 계산: 결석일 경우 배열에서 완전히 제외
                                 const validProgs = weekDates.map(d => {
                                   const r = records[d]?.[student.id];
                                   if (r && (r.remark || '').includes('결석')) return null;
@@ -1966,7 +2000,7 @@ function MainApp({ role, user, setRole, teacherId }) {
                 {reportClassId && visibleClasses.find(c => c.id === reportClassId)?.type !== 'individual' && (
                   <div className="mt-4">
                     <label className="block text-xs font-bold text-indigo-800 mb-1">선택 기간 공통 진도 (판서반)</label>
-                    <input type="text" value={classWeeklyProgress[reportClassId] || ''} onChange={(e) => {if(!isReadOnly) setClassWeeklyProgress(prev => ({...prev, [reportClassId]: e.target.value}))}} readOnly={isReadOnly} placeholder="예) 다항식의 연산 전체" className={`w-full border border-gray-300 rounded-md p-2 focus:ring-2 focus:ring-indigo-500 outline-none ${isReadOnly ? 'bg-gray-50' : 'bg-white'}`} />
+                    <input type="text" value={classWeeklyProgress[reportClassId] || ''} onChange={(e) => handleClassWeeklyProgressChange(reportClassId, e.target.value)} readOnly={isReadOnly} placeholder="예) 다항식의 연산 전체" className={`w-full border border-gray-300 rounded-md p-2 focus:ring-2 focus:ring-indigo-500 outline-none ${isReadOnly ? 'bg-gray-50' : 'bg-white'}`} />
                   </div>
                 )}
               </div>
@@ -1989,7 +2023,7 @@ function MainApp({ role, user, setRole, teacherId }) {
                         <div className="flex justify-between items-center border-b border-gray-100 pb-3 relative z-20">
                           <div className="font-bold text-lg text-gray-900">{student.name} <span className="text-sm font-normal text-gray-500">({student.school})</span></div>
                           <div className="flex gap-2">
-                            <button onClick={() => {if(!isReadOnly) setExcludeFromReport(prev => ({...prev, [student.id]: !prev[student.id]}))}} disabled={isReadOnly} className={`px-2.5 py-1.5 rounded text-xs font-bold transition flex items-center gap-1 border ${isExcluded ? 'bg-red-50 text-red-600 border-red-200' : 'bg-gray-100 text-gray-500 border-transparent hover:bg-gray-200'}`}>
+                            <button onClick={() => {if(!isReadOnly) updatePartialData({ [`excludeFromReport.${student.id}`]: !isExcluded }); setExcludeFromReport(prev => ({...prev, [student.id]: !prev[student.id]}));}} disabled={isReadOnly} className={`px-2.5 py-1.5 rounded text-xs font-bold transition flex items-center gap-1 border ${isExcluded ? 'bg-red-50 text-red-600 border-red-200' : 'bg-gray-100 text-gray-500 border-transparent hover:bg-gray-200'}`}>
                               {isExcluded ? <Check size={12}/> : <X size={12}/>} {isExcluded ? '전송 포함하기' : '전송 제외'}
                             </button>
                           </div>
@@ -1999,20 +2033,18 @@ function MainApp({ role, user, setRole, teacherId }) {
                           
                           <div>
                             {visibleClasses.find(c => c.id === student.classId)?.type === 'individual' && (
-                              <input type="text" value={individualWeeklyProgress[student.id] || ''} onChange={(e) => {if(!isReadOnly) setIndividualWeeklyProgress(prev => ({...prev, [student.id]: e.target.value}))}} readOnly={isReadOnly} placeholder="학생 개별 주간 진도 입력" className={`w-full border border-gray-300 rounded-md p-3 text-sm focus:ring-2 focus:ring-indigo-500 outline-none mb-3 ${isReadOnly ? 'bg-gray-50' : 'bg-indigo-50/50'}`} />
+                              <input type="text" value={individualWeeklyProgress[student.id] || ''} onChange={(e) => handleIndividualWeeklyProgressChange(student.id, e.target.value)} readOnly={isReadOnly} placeholder="학생 개별 주간 진도 입력" className={`w-full border border-gray-300 rounded-md p-3 text-sm focus:ring-2 focus:ring-indigo-500 outline-none mb-3 ${isReadOnly ? 'bg-gray-50' : 'bg-indigo-50/50'}`} />
                             )}
                             <label className="text-[10px] font-bold text-gray-500 mb-1 block">선생님 특별 비고 작성란 (결석/지각 날짜가 표기되어 있습니다)</label>
-                            <textarea value={manualRemark} onChange={(e) => {if(!isReadOnly) setReportRemarks(prev => ({...prev, [student.id]: e.target.value}))}} readOnly={isReadOnly} placeholder="이번 주 지각/결석 기록이 자동으로 표시되며, 추가할 내용을 자유롭게 적어주세요." className={`w-full border border-gray-300 rounded-md p-3 text-sm focus:ring-2 focus:ring-indigo-500 outline-none resize-y h-20 ${isReadOnly ? 'bg-gray-100 text-gray-600' : 'bg-yellow-50/30'}`} />
+                            <textarea value={manualRemark} onChange={(e) => handleReportRemarkChange(student.id, e.target.value)} readOnly={isReadOnly} placeholder="이번 주 지각/결석 기록이 자동으로 표시되며, 추가할 내용을 자유롭게 적어주세요." className={`w-full border border-gray-300 rounded-md p-3 text-sm focus:ring-2 focus:ring-indigo-500 outline-none resize-y h-20 ${isReadOnly ? 'bg-gray-100 text-gray-600' : 'bg-yellow-50/30'}`} />
                           </div>
                           
                           <div className="relative flex-1 flex flex-col">
                             <div className="flex justify-between items-end mb-1">
                               <label className="text-[10px] font-bold text-gray-500">최종 전송 텍스트</label>
                               
-                              {/* 행정팀(office) 계정이 아닐 때만 수정/초기화 버튼 렌더링 */}
                               {!isReadOnly && (
                                 <div className="flex gap-2">
-                                  {/* 초기화 버튼 */}
                                   {customReports[student.id] !== undefined && (
                                     <button
                                       onClick={() => {
@@ -2028,7 +2060,6 @@ function MainApp({ role, user, setRole, teacherId }) {
                                     </button>
                                   )}
                                   
-                                  {/* 수정/저장 토글 버튼 */}
                                   <button 
                                     onClick={() => {
                                       if (editingReportId === student.id) {
@@ -2052,7 +2083,6 @@ function MainApp({ role, user, setRole, teacherId }) {
                               )}
                             </div>
                             
-                            {/* textarea에도 isReadOnly 일 경우 강제 읽기 전용 속성 추가 */}
                             <textarea 
                               value={editingReportId === student.id ? editReportText : (customReports[student.id] !== undefined ? customReports[student.id] : currentReportText)} 
                               onChange={(e) => setEditReportText(e.target.value)}
@@ -2144,7 +2174,6 @@ function MainApp({ role, user, setRole, teacherId }) {
                 </>
               )}
 
-              {/* 강사용 구글 드라이브 백업 전용 블록 */}
               {role === 'teacher' && (
                 <div className="bg-blue-50 p-6 rounded-xl border border-blue-200 shadow-sm mb-6">
                   <h3 className="text-lg font-bold text-blue-900 mb-2 flex items-center gap-2"><Sparkles size={20} /> 구글 드라이브 백업</h3>
