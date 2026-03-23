@@ -2,10 +2,10 @@
 /* eslint-disable no-unused-vars */
 
 // ╔══════════════════════════════════════════════════════════════════╗
-// ║         임팩트수학학원 통합 관리 시스템 (v3.0 Final Stable)            ║
-// ║  - 동시성 완벽 제어 (Atomic 다중 업데이트 및 점 표기법 적용)           ║
-// ║  - 배열 -> 객체(Map) 자동 마이그레이션 및 정렬 보장 완료               ║
-// ║  - Firebase Auth 연동 및 백업 데이터 구조 정규화 완료                  ║
+// ║         임팩트수학학원 통합 관리 시스템 (v3.0 Final Stable)       ║
+// ║  - 동시성 완벽 제어 (Atomic 다중 업데이트 및 점 표기법 적용)       ║
+// ║  - 배열 -> 객체(Map) 자동 마이그레이션 및 정렬 보장 완료           ║
+// ║  - Firebase Auth 연동 및 백업 데이터 구조 정규화 완료              ║
 // ╚══════════════════════════════════════════════════════════════════╝
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
@@ -26,7 +26,6 @@ const userActualConfig = {
   storageBucket: process.env.REACT_APP_FIREBASE_STORAGE_BUCKET,
   messagingSenderId: process.env.REACT_APP_FIREBASE_MESSAGING_SENDER_ID,
   appId: process.env.REACT_APP_FIREBASE_APP_ID
-};
 };
 
 if (typeof __firebase_config !== 'undefined') {
