@@ -12,7 +12,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Users, BookOpen, Calendar, Plus, Trash2, Edit2, Check, X, AlertCircle, Sparkles, Copy, Loader2, FileText, Download, Settings, ArrowUp, ArrowDown, ArrowUpDown, RefreshCcw, LogOut, Lock, UserCog, ClipboardList, Eye, Upload } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from 'firebase/auth';
-import { getFirestore, doc, setDoc, getDoc, updateDoc, deleteField } from 'firebase/firestore';
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, doc, setDoc, getDoc, updateDoc, deleteField } from 'firebase/firestore';
 
 // ================================================================
 // SECTION 1 : Firebase 설정 + 공통 상수 + 유틸 함수
@@ -35,7 +35,12 @@ if (typeof __firebase_config !== 'undefined') {
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
-const db = getFirestore(app);
+// 🚨 DB 초기화 로직 변경: 오프라인 영속성 및 다중 탭 동기화 활성화
+const db = initializeFirestore(app, {
+  localCache: persistentLocalCache({
+    tabManager: persistentMultipleTabManager()
+  })
+});
 const appId = typeof __app_id !== 'undefined' ? __app_id : 'impact-math-admin-app';
 
 const DAYS = [
@@ -330,10 +335,57 @@ function MainApp({ role, user, setRole, teacherId }) {
   const [editingReportId, setEditingReportId] = useState(null);
   const [editReportText, setEditReportText] = useState('');
 
+  const syncQueueRef = useRef({});
+  const syncTimerRef = useRef(null);
+  const [syncState, setSyncState] = useState({ pending: 0, failed: 0 });
+
+  const handleTabChange = (targetTabId) => {
+    if (syncState.pending > 0) return showToast('데이터를 서버에 동기화 중입니다. 잠시 후 이동해주세요.', 'error');
+    if (syncState.failed > 0) return showToast('동기화에 실패한 데이터가 있습니다. 네트워크를 확인하세요.', 'error');
+    setActiveTab(targetTabId);
+  };
+
+  const queueUpdate = (path, value) => {
+    syncQueueRef.current[path] = value;
+    setSyncState(prev => ({ pending: Object.keys(syncQueueRef.current).length, failed: prev.failed }));
+    
+    if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
+    
+    syncTimerRef.current = setTimeout(async () => {
+      const payload = { ...syncQueueRef.current };
+      if (Object.keys(payload).length === 0) return;
+      
+      syncQueueRef.current = {}; 
+      
+      try {
+        const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'academy', 'mainData');
+        await updateDoc(docRef, payload);
+        setSyncState({ pending: 0, failed: 0 });
+      } catch (error) {
+        console.error("큐 동기화 실패:", error);
+        syncQueueRef.current = { ...payload, ...syncQueueRef.current };
+        setSyncState(prev => ({ pending: Object.keys(syncQueueRef.current).length, failed: prev.failed + 1 }));
+      }
+    }, 1500); 
+  };
+
   const showToast = (message, type = 'success') => { 
     setToast({ message, type });
     setTimeout(() => setToast(null), 3000); 
   };
+
+  useEffect(() => {
+    const handleBeforeUnload = (e) => {
+      // 대기열에 처리되지 않은 데이터가 1건이라도 있으면 경고창 트리거
+      if (syncState.pending > 0) {
+        e.preventDefault();
+        e.returnValue = ''; 
+      }
+    };
+    
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [syncState.pending]);
 
   // ================================================================
   // SECTION 5 : Firebase 동기화 로직 (마이그레이션 및 부분 업데이트)
@@ -401,10 +453,17 @@ function MainApp({ role, user, setRole, teacherId }) {
   const updatePartialData = async (updatesObj) => {
     if (isReadOnly || !isLoaded) return;
     const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'academy', 'mainData');
+    
+    // UI 인디케이터 활성화
+    setSyncState(prev => ({ ...prev, pending: prev.pending + 1 })); 
     try {
       await updateDoc(docRef, updatesObj);
+      setSyncState(prev => ({ ...prev, pending: Math.max(0, prev.pending - 1) }));
     } catch (error) {
       console.error("부분 업데이트 실패:", error);
+      showToast('⚠️ 서버 저장 실패! 네트워크를 확인하세요.', 'error');
+      // 실패 상태로 전환하여 사용자에게 명확히 인지시킴
+      setSyncState(prev => ({ pending: Math.max(0, prev.pending - 1), failed: prev.failed + 1 })); 
     }
   };
 
@@ -837,10 +896,8 @@ function MainApp({ role, user, setRole, teacherId }) {
         } 
       };
     });
-
-    updatePartialData({
-      [`records.${dateStr}.${studentId}.${field}`]: value
-    });
+    // DB 직접 쓰기 대신 큐에 위임
+    queueUpdate(`records.${dateStr}.${studentId}.${field}`, value);
   };
 
   const handleRecordChange = (studentId, field, value) => {
@@ -848,52 +905,45 @@ function MainApp({ role, user, setRole, teacherId }) {
   };
 
   const handleQuickRemark = (dateStr, studentId, type) => {
-  if (isReadOnly) return;
+    if (isReadOnly) return;
 
-  // 1. 현재 화면에 그려진 records 상태를 기반으로 확정 값을 먼저 계산합니다.
-  const dateRecords = records[dateStr] || {};
-  const studentRecord = dateRecords[studentId] || { progress: 100, remark: '' };
-  let currentRemark = studentRecord.remark || '';
-  let newProgress = studentRecord.progress;
+    // 1. 현재 렌더링된 상태를 기준으로 연산 (setState 외부에서 처리)
+    const currentRecord = (records[dateStr] || {})[studentId] || { progress: 100, remark: '' };
+    let newRemark = currentRecord.remark || '';
+    let newProgress = currentRecord.progress ?? 100;
 
-  if (type === '결석') {
-    currentRemark = currentRemark.replace(/지각/g, '').trim();
-    if (currentRemark.includes('결석')) {
-      currentRemark = currentRemark.replace(/결석/g, '').replace(/\s+/g, ' ').trim();
-      if (newProgress === null) newProgress = 100;
-    } else {
-      currentRemark = (currentRemark + ' 결석').trim();
-      newProgress = null;
+    if (type === '결석') {
+      newRemark = newRemark.replace(/지각/g, '').trim();
+      if (newRemark.includes('결석')) {
+        newRemark = newRemark.replace(/결석/g, '').replace(/\s+/g, ' ').trim();
+        newProgress = 100;
+      } else {
+        newRemark = (newRemark + ' 결석').trim();
+        newProgress = null;
+      }
+    } else if (type === '지각') {
+      newRemark = newRemark.replace(/결석/g, '').trim();
+      if (newRemark.includes('지각')) {
+        newRemark = newRemark.replace(/지각/g, '').replace(/\s+/g, ' ').trim();
+      } else {
+        newRemark = (newRemark + ' 지각').trim();
+        if (newProgress === null) newProgress = 100;
+      }
     }
-  } else if (type === '지각') {
-    currentRemark = currentRemark.replace(/결석/g, '').trim();
-    if (currentRemark.includes('지각')) {
-      currentRemark = currentRemark.replace(/지각/g, '').replace(/\s+/g, ' ').trim();
-    } else {
-      currentRemark = (currentRemark + ' 지각').trim();
-      if (newProgress === null) newProgress = 100;
+
+    // 2. 값에 변화가 있을 때만 React 상태와 Queue 업데이트를 각각 독립적으로 실행
+    if (currentRecord.remark !== newRemark || currentRecord.progress !== newProgress) {
+      queueUpdate(`records.${dateStr}.${studentId}.remark`, newRemark);
+      queueUpdate(`records.${dateStr}.${studentId}.progress`, newProgress);
+      
+      setRecords(prev => ({
+        ...prev,
+        [dateStr]: {
+          ...(prev[dateStr] || {}),
+          [studentId]: { ...currentRecord, remark: newRemark, progress: newProgress }
+        }
+      }));
     }
-  }
-
-  // 2. 계산된 확정 값을 Firebase로 즉시 전송 (타이밍 꼬임 방지)
-  const basePath = `records.${dateStr}.${studentId}`;
-  updatePartialData({
-    [`${basePath}.remark`]: currentRemark,
-    [`${basePath}.progress`]: newProgress
-  });
-
-  // 3. 로컬 UI 상태 업데이트 (이전 상태를 기반으로 안전하게 병합)
-  setRecords(prev => {
-    const prevDateRecords = prev[dateStr] || {};
-    const prevStudentRecord = prevDateRecords[studentId] || { progress: 100, remark: '' };
-    return { 
-      ...prev, 
-      [dateStr]: { 
-        ...prevDateRecords, 
-        [studentId]: { ...prevStudentRecord, remark: currentRemark, progress: newProgress } 
-      } 
-    };
-  });
   };
 
   const importPreviousRemark = (studentId, currentDate) => {
@@ -1174,7 +1224,14 @@ function MainApp({ role, user, setRole, teacherId }) {
       });
     }
 
-    const stdRecords = Object.values(records).filter((_, i) => Object.keys(records)[i] >= reportStartDate && Object.keys(records)[i] <= reportEndDate).map(d => d[student.id]).filter(r => r && r.progress !== undefined && r.progress !== null && !(r.remark || '').includes('결석'));
+    // 변경 전: Object.values(records).filter((_, i) => Object.keys(records)[i] >= ...
+    // 변경 후: 가독성 확보 및 명시적 날짜 정렬 추가
+    const stdRecords = Object.entries(records)
+      .sort(([dateA], [dateB]) => dateA.localeCompare(dateB)) // 시간순 보장
+      .filter(([dateStr]) => dateStr >= reportStartDate && dateStr <= reportEndDate)
+      .map(([_, dayRecords]) => dayRecords[student.id])
+      .filter(r => r && r.progress !== undefined && r.progress !== null && !(r.remark || '').includes('결석'));
+    
     const avgProgress = stdRecords.length > 0 ? Math.round(stdRecords.reduce((sum, r) => sum + r.progress, 0) / stdRecords.length) : 100;
     
     const autoRemark = getAutoAttendanceRemark(student.id);
@@ -1229,6 +1286,30 @@ function MainApp({ role, user, setRole, teacherId }) {
           {toast.message}
         </div>
       )}
+
+      {/* 📍 여기에 붙여넣으세요: 🚀 전송 상태 UI 시작 */}
+      <div className="fixed bottom-6 right-6 z-[100] flex flex-col items-end gap-2 pointer-events-none transition-all">
+        {syncState.pending > 0 && syncState.failed === 0 && (
+          <div className="bg-gray-800 text-white px-5 py-3 rounded-full shadow-2xl flex items-center gap-2 text-sm font-bold">
+            <Loader2 className="animate-spin text-blue-400" size={18} />
+            <span>서버 동기화 중... ({syncState.pending}건 대기)</span>
+          </div>
+        )}
+        {syncState.pending === 0 && syncState.failed === 0 && Object.keys(syncQueueRef.current).length === 0 && (
+          <div className="bg-green-50 text-green-700 border border-green-200 px-5 py-3 rounded-full shadow-xl flex items-center gap-2 text-sm font-bold opacity-0 animate-[fadeInOut_3s_ease-in-out]">
+            <Check className="text-green-600" size={18} />
+            <span>모든 데이터 안전하게 저장됨</span>
+          </div>
+        )}
+        {syncState.failed > 0 && (
+          <div className="bg-red-600 text-white px-5 py-3 rounded-full shadow-2xl flex items-center gap-2 text-sm font-bold pointer-events-auto">
+            <AlertCircle size={18} />
+            <span>저장 실패! ({syncState.failed}건) 네트워크 확인 요망</span>
+          </div>
+        )}
+        <style>{`@keyframes fadeInOut { 0% { opacity: 0; transform: translateY(10px); } 10% { opacity: 1; transform: translateY(0); } 90% { opacity: 1; transform: translateY(0); } 100% { opacity: 0; transform: translateY(10px); } }`}</style>
+      </div>
+      {/* 📍 전송 상태 UI 끝 */}
 
       {classDeleteWarning && !isReadOnly && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-[60]">
@@ -1314,7 +1395,14 @@ function MainApp({ role, user, setRole, teacherId }) {
         )}
 
         <div className="flex flex-wrap gap-2 border-b mb-6 overflow-x-auto pb-1">
-          {role === 'admin' && <button onClick={() => setActiveTab('instructors')} className={`px-4 py-2.5 text-sm font-bold rounded-t-lg ${activeTab === 'instructors' ? 'bg-blue-600 text-white shadow-sm' : 'text-gray-500 hover:bg-gray-200'}`}>강사 관리</button>}
+          {role === 'admin' && (
+            <button 
+              onClick={() => handleTabChange('instructors')} 
+              className={`px-4 py-2.5 text-sm font-bold rounded-t-lg ${activeTab === 'instructors' ? 'bg-blue-600 text-white shadow-sm' : 'text-gray-500 hover:bg-gray-200'}`}
+            >
+              강사 관리
+            </button>
+          )}
           {[
             { id: 'daily', icon: Calendar, label: '일일 과제/체크' },
             { id: 'tests', icon: FileText, label: '주간 테스트' },
@@ -1325,7 +1413,7 @@ function MainApp({ role, user, setRole, teacherId }) {
           ].filter(tab => !(isReadOnly && tab.id === 'settings')).map(tab => (
             <button
               key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
+              onClick={() => handleTabChange(tab.id)}
               className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-bold rounded-t-lg transition-colors whitespace-nowrap ${
                 activeTab === tab.id 
                   ? 'bg-blue-600 text-white shadow-sm' 
@@ -1338,6 +1426,32 @@ function MainApp({ role, user, setRole, teacherId }) {
             </button>
           ))}
         </div>
+
+        {/* 🚀 전송 상태 UI (가장 확실하고 정직한 인디케이터) */}
+        <div className="fixed bottom-6 right-6 z-[100] flex flex-col items-end gap-2 pointer-events-none transition-all">
+          {syncState.pending > 0 && syncState.failed === 0 && (
+            <div className="bg-gray-800 text-white px-5 py-3 rounded-full shadow-2xl flex items-center gap-2 text-sm font-bold">
+              <Loader2 className="animate-spin text-blue-400" size={18} />
+              <span>서버 동기화 중... ({syncState.pending}건 대기)</span>
+            </div>
+          )}
+          {syncState.pending === 0 && syncState.failed === 0 && Object.keys(syncQueueRef.current).length === 0 && (
+            <div className="bg-green-50 text-green-700 border border-green-200 px-5 py-3 rounded-full shadow-xl flex items-center gap-2 text-sm font-bold opacity-0 animate-[fadeInOut_3s_ease-in-out]">
+              <Check className="text-green-600" size={18} />
+              <span>모든 데이터 안전하게 저장됨</span>
+            </div>
+          )}
+          {syncState.failed > 0 && (
+            <div className="bg-red-600 text-white px-5 py-3 rounded-full shadow-2xl flex items-center gap-2 text-sm font-bold pointer-events-auto">
+              <AlertCircle size={18} />
+              <span>저장 실패! ({syncState.failed}건) 네트워크 확인 요망</span>
+            </div>
+          )}
+          <style>{`@keyframes fadeInOut { 0% { opacity: 0; transform: translateY(10px); } 10% { opacity: 1; transform: translateY(0); } 90% { opacity: 1; transform: translateY(0); } 100% { opacity: 0; transform: translateY(10px); } }`}</style>
+        </div>
+        
+
+        
 
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 min-h-[500px]">
           
