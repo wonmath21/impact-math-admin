@@ -2,10 +2,10 @@
 /* eslint-disable no-unused-vars */
 
 // ╔══════════════════════════════════════════════════════════════════╗
-// ║         임팩트수학학원 통합 관리 시스템 (v3.0 Final Stable)       ║
-// ║  - 동시성 완벽 제어 (Atomic 다중 업데이트 및 점 표기법 적용)       ║
-// ║  - 배열 -> 객체(Map) 자동 마이그레이션 및 정렬 보장 완료           ║
-// ║  - Firebase Auth 연동 및 백업 데이터 구조 정규화 완료              ║
+// ║         임팩트수학학원 통합 관리 시스템 (v3.0 Final Stable)            ║
+// ║  - 동시성 완벽 제어 (Atomic 다중 업데이트 및 점 표기법 적용)           ║
+// ║  - 배열 -> 객체(Map) 자동 마이그레이션 및 정렬 보장 완료               ║
+// ║  - Firebase Auth 연동 및 백업 데이터 구조 정규화 완료                  ║
 // ╚══════════════════════════════════════════════════════════════════╝
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
@@ -18,14 +18,13 @@ import { getFirestore, doc, setDoc, getDoc, updateDoc, deleteField } from 'fireb
 // SECTION 1 : Firebase 설정 + 공통 상수 + 유틸 함수
 // ================================================================
 let firebaseConfig;
-// [SECTION 1: 교체할 코드]
 const userActualConfig = {
-  apiKey: process.env.REACT_APP_FIREBASE_API_KEY,
-  authDomain: process.env.REACT_APP_FIREBASE_AUTH_DOMAIN,
-  projectId: process.env.REACT_APP_FIREBASE_PROJECT_ID,
-  storageBucket: process.env.REACT_APP_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: process.env.REACT_APP_FIREBASE_MESSAGING_SENDER_ID,
-  appId: process.env.REACT_APP_FIREBASE_APP_ID
+  apiKey: "AIzaSyBe6DBEXLKAgYYFLLzYoU6qmrOOZifNcEA",
+  authDomain: "weekly-test-a0afd.firebaseapp.com",
+  projectId: "weekly-test-a0afd",
+  storageBucket: "weekly-test-a0afd.firebasestorage.app",
+  messagingSenderId: "88104324183",
+  appId: "1:88104324183:web:03f2c6bfd53de3c73b2712"
 };
 
 if (typeof __firebase_config !== 'undefined') {
@@ -849,53 +848,52 @@ function MainApp({ role, user, setRole, teacherId }) {
   };
 
   const handleQuickRemark = (dateStr, studentId, type) => {
-    if (isReadOnly) return;
+  if (isReadOnly) return;
 
-    let finalRemark = '';
-    let finalProgress = 100;
+  // 1. 현재 화면에 그려진 records 상태를 기반으로 확정 값을 먼저 계산합니다.
+  const dateRecords = records[dateStr] || {};
+  const studentRecord = dateRecords[studentId] || { progress: 100, remark: '' };
+  let currentRemark = studentRecord.remark || '';
+  let newProgress = studentRecord.progress;
 
-    setRecords(prev => {
-      const dateRecords = prev[dateStr] || {};
-      const studentRecord = dateRecords[studentId] || { progress: 100, remark: '' };
-      let currentRemark = studentRecord.remark || '';
-      let newProgress = studentRecord.progress;
+  if (type === '결석') {
+    currentRemark = currentRemark.replace(/지각/g, '').trim();
+    if (currentRemark.includes('결석')) {
+      currentRemark = currentRemark.replace(/결석/g, '').replace(/\s+/g, ' ').trim();
+      if (newProgress === null) newProgress = 100;
+    } else {
+      currentRemark = (currentRemark + ' 결석').trim();
+      newProgress = null;
+    }
+  } else if (type === '지각') {
+    currentRemark = currentRemark.replace(/결석/g, '').trim();
+    if (currentRemark.includes('지각')) {
+      currentRemark = currentRemark.replace(/지각/g, '').replace(/\s+/g, ' ').trim();
+    } else {
+      currentRemark = (currentRemark + ' 지각').trim();
+      if (newProgress === null) newProgress = 100;
+    }
+  }
 
-      if (type === '결석') {
-        currentRemark = currentRemark.replace(/지각/g, '').trim(); 
-        if (currentRemark.includes('결석')) {
-          currentRemark = currentRemark.replace(/결석/g, '').replace(/\s+/g, ' ').trim();
-          if (newProgress === null) newProgress = 100;
-        } else {
-          currentRemark = (currentRemark + ' 결석').trim();
-          newProgress = null; 
-        }
-      } else if (type === '지각') {
-        currentRemark = currentRemark.replace(/결석/g, '').trim(); 
-        if (currentRemark.includes('지각')) {
-          currentRemark = currentRemark.replace(/지각/g, '').replace(/\s+/g, ' ').trim();
-        } else {
-          currentRemark = (currentRemark + ' 지각').trim();
-          if (newProgress === null) newProgress = 100;
-        }
-      }
+  // 2. 계산된 확정 값을 Firebase로 즉시 전송 (타이밍 꼬임 방지)
+  const basePath = `records.${dateStr}.${studentId}`;
+  updatePartialData({
+    [`${basePath}.remark`]: currentRemark,
+    [`${basePath}.progress`]: newProgress
+  });
 
-      finalRemark = currentRemark;
-      finalProgress = newProgress;
-
-      return { 
-        ...prev, 
-        [dateStr]: { 
-          ...dateRecords, 
-          [studentId]: { ...studentRecord, remark: currentRemark, progress: newProgress } 
-        } 
-      };
-    });
-
-    const basePath = `records.${dateStr}.${studentId}`;
-    updatePartialData({
-      [`${basePath}.remark`]: finalRemark,
-      [`${basePath}.progress`]: finalProgress
-    });
+  // 3. 로컬 UI 상태 업데이트 (이전 상태를 기반으로 안전하게 병합)
+  setRecords(prev => {
+    const prevDateRecords = prev[dateStr] || {};
+    const prevStudentRecord = prevDateRecords[studentId] || { progress: 100, remark: '' };
+    return { 
+      ...prev, 
+      [dateStr]: { 
+        ...prevDateRecords, 
+        [studentId]: { ...prevStudentRecord, remark: currentRemark, progress: newProgress } 
+      } 
+    };
+  });
   };
 
   const importPreviousRemark = (studentId, currentDate) => {
