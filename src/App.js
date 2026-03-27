@@ -1927,85 +1927,168 @@ function MainApp({ role, user, setRole, teacherId }) {
                   const isIndividual = selectedClass?.type === 'individual';
                   const classStds = visibleStudents.filter(s => s.classId === testClassId).sort((a,b)=>a.name.localeCompare(b.name, 'ko-KR'));
 
+                  // =====================================================================
+                  // 1. 개별반 (Individual) 렌더링 로직
+                  // =====================================================================
                   if (isIndividual) {
                     if (classStds.length === 0) return <div className="text-center p-8 text-gray-500">학생을 먼저 추가해주세요.</div>;
-                    if (!selectedIndivStudent && classStds.length > 0) setSelectedIndivStudent(classStds[0].id);
-
-                    const indivTests = Object.values(individualTestRecords).filter(t => t.studentId === selectedIndivStudent).sort((a,b) => a.date.localeCompare(b.date));
-
+                    
+                    if (!selectedIndivStudent && classStds.length > 0) setSelectedIndivStudent('all');
+                    const isViewAll = selectedIndivStudent === 'all';
+                    
                     return (
                       <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
-                        <div className="flex bg-gray-100 border-b border-gray-200 overflow-x-auto">
-                          {classStds.map(std => (
-                            <button key={std.id} onClick={() => setSelectedIndivStudent(std.id)} className={`px-6 py-3 font-bold text-sm whitespace-nowrap transition-colors ${selectedIndivStudent === std.id ? 'bg-white text-purple-700 border-t-2 border-purple-600' : 'text-gray-500 hover:bg-gray-200'}`}>
-                              {std.name}
-                            </button>
-                          ))}
+                        <div className="flex bg-gray-100 border-b border-gray-200 overflow-x-auto relative">
+                          <div className="sticky left-0 z-10 flex-shrink-0 bg-gray-100 shadow-[3px_0_5px_-2px_rgba(0,0,0,0.15)] border-r-2 border-gray-300">
+                            <button onClick={() => setSelectedIndivStudent('all')} className={`px-6 py-3 font-bold text-sm whitespace-nowrap transition-colors h-full w-full ${selectedIndivStudent === 'all' ? 'bg-white text-purple-700 border-t-2 border-purple-600' : 'text-gray-700 hover:bg-gray-200'}`}>전체보기</button>
+                          </div>
+                          <div className="flex flex-nowrap">
+                            {classStds.map(std => <button key={std.id} onClick={() => setSelectedIndivStudent(std.id)} className={`px-6 py-3 font-bold text-sm whitespace-nowrap transition-colors ${selectedIndivStudent === std.id ? 'bg-white text-purple-700 border-t-2 border-purple-600' : 'text-gray-500 hover:bg-gray-200'}`}>{std.name}</button>)}
+                          </div>
                         </div>
-                        <div className="p-4">
-                          <div className="flex justify-between items-center mb-4">
-                            <h4 className="font-bold text-lg text-gray-800">{classStds.find(s=>s.id===selectedIndivStudent)?.name} 학생 테스트 기록</h4>
-                            {!isReadOnly && <button onClick={handleAddIndivTestRow} className="bg-purple-100 text-purple-700 px-3 py-1.5 rounded font-bold text-sm hover:bg-purple-200 flex items-center gap-1"><Plus size={16}/> 새 테스트 기록</button>}
-                          </div>
-                          <div className="overflow-x-auto pb-4">
-                            <table className="w-full text-center min-w-[700px] border-collapse">
-                              <thead>
-                                <tr className="bg-purple-50 text-purple-900 text-sm font-bold border-y border-purple-200">
-                                  <th className="p-2 border-r border-purple-100 w-32 whitespace-nowrap">시험날짜</th>
-                                  <th className="p-2 border-r border-purple-100 min-w-[150px] whitespace-nowrap">테스트 과정명</th>
-                                  <th className="p-2 border-r border-purple-100 w-16 whitespace-nowrap">총문항</th>
-                                  <th className="p-2 border-r border-purple-100 w-16">점수</th>
-                                  <th className="p-2 border-r border-purple-100 w-16">재시</th>
-                                  {!isReadOnly && <th className="p-2 w-12">삭제</th>}
-                                </tr>
-                              </thead>
-                              <tbody className={`divide-y divide-gray-200 border-b border-gray-200 ${isReadOnly ? 'pointer-events-none' : ''}`}>
-                                {indivTests.map(test => {
-                                  const tQ = Number(test.totalQ);
-                                  const hasScore = test.score !== '';
-                                  const isInitialPass = hasScore && tQ > 0 && (Number(test.score) / tQ >= 0.8);
-                                  const hasRetest = test.retest !== '';
-                                  const isRetestPass = hasRetest && tQ > 0 && (Number(test.retest) / tQ >= 0.8);
-                                  
-                                  const scoreError = testErrors[`${test.id}_score`];
-                                  const retestError = testErrors[`${test.id}_retest`];
 
-                                  return (
-                                    <tr key={test.id} className="hover:bg-gray-50 group">
-                                      <td className="p-2 border-r border-gray-200 align-middle relative hover:bg-purple-50 transition-colors cursor-pointer">
-                                        <input type="date" value={test.date} onChange={e => handleIndivTestChange(test.id, 'date', e.target.value)} onClick={(e) => { try { e.target.showPicker(); } catch(err){} }} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-20"/>
-                                        <div className="font-bold text-purple-800 text-center pointer-events-none relative z-10">{formatShortDate(test.date)}</div>
-                                      </td>
-                                      <td className="p-2 border-r border-gray-200 text-left align-middle">
-                                        <input type="text" value={test.subject} onChange={e => handleIndivTestChange(test.id, 'subject', e.target.value)} placeholder="단원명 입력" className="w-full text-sm outline-none bg-transparent focus:bg-white focus:ring-2 focus:ring-purple-500 rounded p-1.5 border border-transparent hover:border-purple-200" />
-                                      </td>
-                                      <td className="p-2 border-r border-gray-200">
-                                        <input type="number" value={test.totalQ} onChange={e => handleIndivTestChange(test.id, 'totalQ', e.target.value)} className="w-full text-center outline-none font-bold text-gray-700 bg-transparent focus:bg-white focus:ring-2 focus:ring-purple-300 rounded" placeholder="문항"/>
-                                      </td>
-                                      <td className="p-2 border-r border-gray-200 align-top pt-3">
-                                        <input type="number" value={test.score} onChange={e => handleIndivTestChange(test.id, 'score', e.target.value)} className={`w-full text-center outline-none font-bold rounded ${scoreError ? 'bg-red-50 border border-red-500 text-red-600 placeholder-red-500 focus:ring-0' : 'text-blue-700 bg-transparent focus:bg-white focus:ring-2 focus:ring-purple-300'}`} placeholder={scoreError ? "범위초과" : "점수"}/>
-                                        {hasScore && <div className={`text-[10px] font-bold text-center mt-1 ${isInitialPass?'text-green-600':'text-red-500'}`}>{isInitialPass?'통과':'미통과'}</div>}
-                                      </td>
-                                      <td className="p-2 border-r border-gray-200 align-top pt-3">
-                                        <input type="number" value={test.retest} disabled={isInitialPass} onChange={e => handleIndivTestChange(test.id, 'retest', e.target.value)} className={`w-full text-center outline-none font-bold rounded ${isInitialPass ? 'bg-gray-100 text-gray-400 cursor-not-allowed opacity-50' : retestError ? 'bg-red-50 border border-red-500 text-red-600 placeholder-red-500 focus:ring-0' : 'text-orange-600 bg-transparent focus:bg-white focus:ring-2 focus:ring-purple-300'}`} placeholder={retestError ? "범위초과" : "재시"}/>
-                                        {!isInitialPass && hasRetest && <div className={`text-[10px] font-bold text-center mt-1 ${isRetestPass?'text-green-600':'text-red-500'}`}>{isRetestPass?'통과':'미통과'}</div>}
-                                      </td>
-                                      {!isReadOnly && (
-                                        <td className="p-2 text-center">
-                                          <button onClick={() => setTestToDelete({ id: test.id, type: 'individual' })} className="text-gray-300 hover:text-red-500 transition-colors"><Trash2 size={16}/></button>
-                                        </td>
-                                      )}
+                        <div className="p-4 bg-gray-50/50">
+                          {isViewAll ? (
+                            <div className="space-y-8">
+                              {classStds.map(student => {
+                                const studentTests = Object.values(individualTestRecords)
+                                  .filter(t => t.studentId === student.id)
+                                  .sort((a, b) => a.date.localeCompare(b.date));
+
+                                return (
+                                  <div key={student.id} className="bg-white border border-purple-100 rounded-lg shadow-sm overflow-hidden">
+                                    <div className="bg-purple-50 px-4 py-3 border-b border-purple-100 flex justify-between items-center">
+                                      <h4 className="font-bold text-purple-900">{student.name} 학생</h4>
+                                      <span className="text-xs text-purple-600 font-bold bg-purple-100 px-2 py-1 rounded">총 {studentTests.length}건</span>
+                                    </div>
+                                    <div className="overflow-x-auto">
+                                      <table className="w-full text-center min-w-[700px] border-collapse">
+                                        <thead>
+                                          <tr className="bg-gray-50 text-gray-700 text-sm border-b border-gray-200">
+                                            <th className="p-2 border-r border-gray-200 w-32 whitespace-nowrap">시험날짜</th>
+                                            <th className="p-2 border-r border-gray-200 min-w-[150px] whitespace-nowrap">테스트 과정명</th>
+                                            <th className="p-2 border-r border-gray-200 w-16 whitespace-nowrap">총문항</th>
+                                            <th className="p-2 border-r border-gray-200 w-16">점수</th>
+                                            <th className="p-2 border-r border-gray-200 w-16">재시</th>
+                                            {!isReadOnly && <th className="p-2 w-12">삭제</th>}
+                                          </tr>
+                                        </thead>
+                                        <tbody className={`divide-y divide-gray-200 ${isReadOnly ? 'pointer-events-none' : ''}`}>
+                                          {studentTests.map(test => {
+                                            const tQ = Number(test.totalQ);
+                                            const hasScore = test.score !== '';
+                                            const isInitialPass = hasScore && tQ > 0 && (Number(test.score) / tQ >= 0.8);
+                                            const hasRetest = test.retest !== '';
+                                            const isRetestPass = hasRetest && tQ > 0 && (Number(test.retest) / tQ >= 0.8);
+                                            const scoreError = testErrors[`${test.id}_score`];
+                                            const retestError = testErrors[`${test.id}_retest`];
+
+                                            return (
+                                              <tr key={test.id} className="hover:bg-gray-50 group">
+                                                <td className="p-2 border-r border-gray-200 align-middle relative hover:bg-purple-50 transition-colors cursor-pointer">
+                                                  <input type="date" value={test.date} onChange={e => handleIndivTestChange(test.id, 'date', e.target.value)} onClick={(e) => { try { e.target.showPicker(); } catch(err){} }} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-20"/>
+                                                  <div className="font-bold text-purple-800 text-center pointer-events-none relative z-10">{formatShortDate(test.date)}</div>
+                                                </td>
+                                                <td className="p-2 border-r border-gray-200 text-left align-middle">
+                                                  <input type="text" value={test.subject} onChange={e => handleIndivTestChange(test.id, 'subject', e.target.value)} placeholder="단원명 입력" className="w-full text-sm outline-none bg-transparent focus:bg-white focus:ring-2 focus:ring-purple-500 rounded p-1.5 border border-transparent hover:border-purple-200" />
+                                                </td>
+                                                <td className="p-2 border-r border-gray-200">
+                                                  <input type="number" value={test.totalQ} onChange={e => handleIndivTestChange(test.id, 'totalQ', e.target.value)} className="w-full text-center outline-none font-bold text-gray-700 bg-transparent focus:bg-white focus:ring-2 focus:ring-purple-300 rounded" placeholder="문항"/>
+                                                </td>
+                                                <td className="p-2 border-r border-gray-200 align-top pt-3">
+                                                  <input type="number" value={test.score} onChange={e => handleIndivTestChange(test.id, 'score', e.target.value)} className={`w-full text-center outline-none font-bold rounded ${scoreError ? 'bg-red-50 border border-red-500 text-red-600 placeholder-red-500 focus:ring-0' : 'text-blue-700 bg-transparent focus:bg-white focus:ring-2 focus:ring-purple-300'}`} placeholder={scoreError ? "범위초과" : "점수"}/>
+                                                  {hasScore && <div className={`text-[10px] font-bold text-center mt-1 ${isInitialPass?'text-green-600':'text-red-500'}`}>{isInitialPass?'통과':'미통과'}</div>}
+                                                </td>
+                                                <td className="p-2 border-r border-gray-200 align-top pt-3">
+                                                  <input type="number" value={test.retest} disabled={isInitialPass} onChange={e => handleIndivTestChange(test.id, 'retest', e.target.value)} className={`w-full text-center outline-none font-bold rounded ${isInitialPass ? 'bg-gray-100 text-gray-400 cursor-not-allowed opacity-50' : retestError ? 'bg-red-50 border border-red-500 text-red-600 placeholder-red-500 focus:ring-0' : 'text-orange-600 bg-transparent focus:bg-white focus:ring-2 focus:ring-purple-300'}`} placeholder={retestError ? "범위초과" : "재시"}/>
+                                                  {!isInitialPass && hasRetest && <div className={`text-[10px] font-bold text-center mt-1 ${isRetestPass?'text-green-600':'text-red-500'}`}>{isRetestPass?'통과':'미통과'}</div>}
+                                                </td>
+                                                {!isReadOnly && (
+                                                  <td className="p-2 text-center">
+                                                    <button onClick={() => setTestToDelete({ id: test.id, type: 'individual' })} className="text-gray-300 hover:text-red-500 transition-colors"><Trash2 size={16}/></button>
+                                                  </td>
+                                                )}
+                                              </tr>
+                                            )
+                                          })}
+                                          {studentTests.length === 0 && <tr><td colSpan={isReadOnly ? 5 : 6} className="py-6 text-gray-400 text-sm bg-white">등록된 테스트 기록이 없습니다.</td></tr>}
+                                        </tbody>
+                                      </table>
+                                    </div>
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          ) : (
+                            <div className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm">
+                              <div className="flex justify-between items-center mb-4">
+                                <h4 className="font-bold text-lg text-gray-800">{classStds.find(s=>s.id===selectedIndivStudent)?.name} 학생 테스트 기록</h4>
+                                {!isReadOnly && <button onClick={handleAddIndivTestRow} className="bg-purple-100 text-purple-700 px-3 py-1.5 rounded font-bold text-sm hover:bg-purple-200 flex items-center gap-1"><Plus size={16}/> 새 테스트 기록</button>}
+                              </div>
+                              <div className="overflow-x-auto pb-4">
+                                <table className="w-full text-center min-w-[700px] border-collapse">
+                                  <thead>
+                                    <tr className="bg-purple-50 text-purple-900 text-sm font-bold border-y border-purple-200">
+                                      <th className="p-2 border-r border-purple-100 w-32 whitespace-nowrap">시험날짜</th>
+                                      <th className="p-2 border-r border-purple-100 min-w-[150px] whitespace-nowrap">테스트 과정명</th>
+                                      <th className="p-2 border-r border-purple-100 w-16 whitespace-nowrap">총문항</th>
+                                      <th className="p-2 border-r border-purple-100 w-16">점수</th>
+                                      <th className="p-2 border-r border-purple-100 w-16">재시</th>
+                                      {!isReadOnly && <th className="p-2 w-12">삭제</th>}
                                     </tr>
-                                  )
-                                })}
-                                {indivTests.length === 0 && <tr><td colSpan={isReadOnly ? "5" : "6"} className="py-10 text-gray-400">등록된 테스트 기록이 없습니다.</td></tr>}
-                              </tbody>
-                            </table>
-                          </div>
+                                  </thead>
+                                  <tbody className={`divide-y divide-gray-200 border-b border-gray-200 ${isReadOnly ? 'pointer-events-none' : ''}`}>
+                                    {Object.values(individualTestRecords).filter(t => t.studentId === selectedIndivStudent).sort((a,b) => a.date.localeCompare(b.date)).map(test => {
+                                      const tQ = Number(test.totalQ);
+                                      const hasScore = test.score !== '';
+                                      const isInitialPass = hasScore && tQ > 0 && (Number(test.score) / tQ >= 0.8);
+                                      const hasRetest = test.retest !== '';
+                                      const isRetestPass = hasRetest && tQ > 0 && (Number(test.retest) / tQ >= 0.8);
+                                      const scoreError = testErrors[`${test.id}_score`];
+                                      const retestError = testErrors[`${test.id}_retest`];
+
+                                      return (
+                                        <tr key={test.id} className="hover:bg-gray-50 group">
+                                          <td className="p-2 border-r border-gray-200 align-middle relative hover:bg-purple-50 transition-colors cursor-pointer">
+                                            <input type="date" value={test.date} onChange={e => handleIndivTestChange(test.id, 'date', e.target.value)} onClick={(e) => { try { e.target.showPicker(); } catch(err){} }} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-20"/>
+                                            <div className="font-bold text-purple-800 text-center pointer-events-none relative z-10">{formatShortDate(test.date)}</div>
+                                          </td>
+                                          <td className="p-2 border-r border-gray-200 text-left align-middle">
+                                            <input type="text" value={test.subject} onChange={e => handleIndivTestChange(test.id, 'subject', e.target.value)} placeholder="단원명 입력" className="w-full text-sm outline-none bg-transparent focus:bg-white focus:ring-2 focus:ring-purple-500 rounded p-1.5 border border-transparent hover:border-purple-200" />
+                                          </td>
+                                          <td className="p-2 border-r border-gray-200">
+                                            <input type="number" value={test.totalQ} onChange={e => handleIndivTestChange(test.id, 'totalQ', e.target.value)} className="w-full text-center outline-none font-bold text-gray-700 bg-transparent focus:bg-white focus:ring-2 focus:ring-purple-300 rounded" placeholder="문항"/>
+                                          </td>
+                                          <td className="p-2 border-r border-gray-200 align-top pt-3">
+                                            <input type="number" value={test.score} onChange={e => handleIndivTestChange(test.id, 'score', e.target.value)} className={`w-full text-center outline-none font-bold rounded ${scoreError ? 'bg-red-50 border border-red-500 text-red-600 placeholder-red-500 focus:ring-0' : 'text-blue-700 bg-transparent focus:bg-white focus:ring-2 focus:ring-purple-300'}`} placeholder={scoreError ? "범위초과" : "점수"}/>
+                                            {hasScore && <div className={`text-[10px] font-bold text-center mt-1 ${isInitialPass?'text-green-600':'text-red-500'}`}>{isInitialPass?'통과':'미통과'}</div>}
+                                          </td>
+                                          <td className="p-2 border-r border-gray-200 align-top pt-3">
+                                            <input type="number" value={test.retest} disabled={isInitialPass} onChange={e => handleIndivTestChange(test.id, 'retest', e.target.value)} className={`w-full text-center outline-none font-bold rounded ${isInitialPass ? 'bg-gray-100 text-gray-400 cursor-not-allowed opacity-50' : retestError ? 'bg-red-50 border border-red-500 text-red-600 placeholder-red-500 focus:ring-0' : 'text-orange-600 bg-transparent focus:bg-white focus:ring-2 focus:ring-purple-300'}`} placeholder={retestError ? "범위초과" : "재시"}/>
+                                            {!isInitialPass && hasRetest && <div className={`text-[10px] font-bold text-center mt-1 ${isRetestPass?'text-green-600':'text-red-500'}`}>{isRetestPass?'통과':'미통과'}</div>}
+                                          </td>
+                                          {!isReadOnly && (
+                                            <td className="p-2 text-center">
+                                              <button onClick={() => setTestToDelete({ id: test.id, type: 'individual' })} className="text-gray-300 hover:text-red-500 transition-colors"><Trash2 size={16}/></button>
+                                            </td>
+                                          )}
+                                        </tr>
+                                      )
+                                    })}
+                                    {Object.values(individualTestRecords).filter(t => t.studentId === selectedIndivStudent).length === 0 && <tr><td colSpan={isReadOnly ? 5 : 6} className="py-10 text-gray-400">등록된 테스트 기록이 없습니다.</td></tr>}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+                          )}
                         </div>
                       </div>
                     );
-                  } else {
+                  } 
+                  // =====================================================================
+                  // 2. 판서반 (Lecture) 렌더링 로직 (기존 원본 복구)
+                  // =====================================================================
+                  else {
                     return (
                       <div className="border border-gray-200 rounded-xl shadow-sm overflow-x-auto bg-white">
                         <table className="w-full text-center min-w-max border-collapse">
