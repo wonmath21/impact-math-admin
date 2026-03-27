@@ -1292,7 +1292,7 @@ function MainApp({ role, user, setRole, teacherId }) {
         {syncState.pending > 0 && syncState.failed === 0 && (
           <div className="bg-gray-800 text-white px-5 py-3 rounded-full shadow-2xl flex items-center gap-2 text-sm font-bold">
             <Loader2 className="animate-spin text-blue-400" size={18} />
-            <span>서버 동기화 중... ({syncState.pending}건 대기)</span>
+            <span>데이터 안전하게 저장 중...</span>
           </div>
         )}
         {syncState.pending === 0 && syncState.failed === 0 && Object.keys(syncQueueRef.current).length === 0 && (
@@ -1432,7 +1432,7 @@ function MainApp({ role, user, setRole, teacherId }) {
           {syncState.pending > 0 && syncState.failed === 0 && (
             <div className="bg-gray-800 text-white px-5 py-3 rounded-full shadow-2xl flex items-center gap-2 text-sm font-bold">
               <Loader2 className="animate-spin text-blue-400" size={18} />
-              <span>서버 동기화 중... ({syncState.pending}건 대기)</span>
+              <span>데이터 안전하게 저장 중...</span>
             </div>
           )}
           {syncState.pending === 0 && syncState.failed === 0 && Object.keys(syncQueueRef.current).length === 0 && (
