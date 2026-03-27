@@ -214,7 +214,7 @@ export default function App() {
         } else {
           try {
             const extractedId = email.split('@')[0]; 
-            const roleDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'academy', 'userRoles', extractedId);
+            const roleDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'userRoles', extractedId);
             const roleSnap = await getDoc(roleDocRef);
 
             if (roleSnap.exists()) {
@@ -680,7 +680,7 @@ function MainApp({ role, user, setRole, teacherId }) {
 
     try {
       const batch = writeBatch(db);
-      const roleRef = doc(db, 'artifacts', appId, 'public', 'data', 'academy', 'userRoles', newInstId);
+      const roleRef = doc(db, 'artifacts', appId, 'public', 'data', 'userRoles', newInstId);
       batch.set(roleRef, { role: 'teacher', teacherId: newId });
       
       const mainRef = doc(db, 'artifacts', appId, 'public', 'data', 'academy', 'mainData');
@@ -719,7 +719,7 @@ function MainApp({ role, user, setRole, teacherId }) {
       const batch = writeBatch(db);
       
       if (instToDelete.username) {
-        const roleRef = doc(db, 'artifacts', appId, 'public', 'data', 'academy', 'userRoles', instToDelete.username);
+        const roleRef = doc(db, 'artifacts', appId, 'public', 'data', 'userRoles', instToDelete.username);
         batch.delete(roleRef);
       }
       
@@ -2418,7 +2418,7 @@ function MainApp({ role, user, setRole, teacherId }) {
                         let count = 0;
                         instructors.forEach(inst => {
                           if(inst.username) {
-                            const roleRef = doc(db, 'artifacts', appId, 'public', 'data', 'academy', 'userRoles', inst.username);
+                            const roleRef = doc(db, 'artifacts', appId, 'public', 'data', 'userRoles', inst.username);
                             batch.set(roleRef, { role: 'teacher', teacherId: inst.id });
                             count++;
                           }
@@ -2431,7 +2431,7 @@ function MainApp({ role, user, setRole, teacherId }) {
                       }
                     }} className="bg-purple-600 text-white px-4 py-2 rounded font-bold hover:bg-purple-700 shadow-sm">기존 강사 신분증 일괄 발급하기</button>
                   </div>
-                  
+
                   <div className="bg-red-50 p-6 rounded-xl border border-red-200 shadow-sm mb-6">
                     <h3 className="text-lg font-bold text-red-900 mb-2 flex items-center gap-2"><AlertCircle size={20} /> 서버 데이터베이스 강제 청소</h3>
                     <p className="text-sm text-red-700 mb-4">삭제해도 계속 부활하는 과거의 유령 테스트 데이터들을 서버에서 완전히 날려버립니다.</p>
