@@ -12,7 +12,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Users, BookOpen, Calendar, Plus, Trash2, Edit2, Check, X, AlertCircle, Sparkles, Copy, Loader2, FileText, Download, Settings, ArrowUp, ArrowDown, ArrowUpDown, RefreshCcw, LogOut, Lock, UserCog, ClipboardList, Eye, Upload } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from 'firebase/auth';
-import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, doc, setDoc, getDoc, updateDoc, deleteField } from 'firebase/firestore';
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, doc, setDoc, getDoc, updateDoc, deleteField, deleteDoc, writeBatch } from 'firebase/firestore';
 
 // ================================================================
 // SECTION 1 : Firebase 설정 + 공통 상수 + 유틸 함수
@@ -213,25 +213,44 @@ export default function App() {
           setRole('office'); localStorage.setItem('userRole', 'office');
         } else {
           try {
-            const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'academy', 'mainData');
-            const docSnap = await getDoc(docRef);
-            if (docSnap.exists()) {
-              const rawInstructors = docSnap.data().instructors || {};
-              const instArray = toArray(rawInstructors);
-              const extractedId = email.split('@')[0]; 
-              const matched = instArray.find(inst => inst.username === extractedId);
-              
-              if (matched) {
-                setRole('teacher'); setTeacherId(matched.id);
-                localStorage.setItem('userRole', 'teacher'); localStorage.setItem('teacherId', matched.id);
+            const extractedId = email.split('@')[0]; 
+            const roleDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'academy', 'userRoles', extractedId);
+            const roleSnap = await getDoc(roleDocRef);
+
+            if (roleSnap.exists()) {
+              const roleData = roleSnap.data();
+              if (roleData.role === 'teacher') {
+                setRole('teacher'); setTeacherId(roleData.teacherId);
+                localStorage.setItem('userRole', 'teacher'); localStorage.setItem('teacherId', roleData.teacherId);
               } else {
-                setLoginError('등록되지 않은 강사 계정입니다.');
-                await signOut(auth);
-                setRole(null);
+                throw new Error('권한이 올바르지 않습니다.');
+              }
+            } else {
+              // 💡 마이그레이션: 구형 방식으로 확인 후 자동 신분증 발급
+              const mainDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'academy', 'mainData');
+              const mainDocSnap = await getDoc(mainDocRef);
+              
+              if (mainDocSnap.exists()) {
+                const rawInstructors = mainDocSnap.data().instructors || {};
+                const instArray = toArray(rawInstructors);
+                const matched = instArray.find(inst => inst.username === extractedId);
+                
+                if (matched) {
+                  await setDoc(roleDocRef, { role: 'teacher', teacherId: matched.id });
+                  setRole('teacher'); setTeacherId(matched.id);
+                  localStorage.setItem('userRole', 'teacher'); localStorage.setItem('teacherId', matched.id);
+                } else {
+                  throw new Error('등록되지 않은 강사 계정입니다.');
+                }
+              } else {
+                throw new Error('서버에서 학원 데이터를 찾을 수 없습니다.');
               }
             }
           } catch(e) {
-            setLoginError('강사 정보 연결 중 오류가 발생했습니다.');
+            setLoginError(e.message || '강사 정보 연결 중 오류가 발생했습니다.');
+            await signOut(auth);
+            setRole(null); setTeacherId(null);
+            localStorage.removeItem('userRole'); localStorage.removeItem('teacherId');
           }
         }
       } else {
@@ -324,6 +343,7 @@ function MainApp({ role, user, setRole, teacherId }) {
   const [classDeleteWarning, setClassDeleteWarning] = useState(false);
   const [studentToDelete, setStudentToDelete] = useState(null);
   const [testToDelete, setTestToDelete] = useState(null);
+  const [instructorToDelete, setInstructorToDelete] = useState(null);
 
   const [selectedIndivStudent, setSelectedIndivStudent] = useState(null);
   const [editingStudentId, setEditingStudentId] = useState(null);
@@ -653,16 +673,28 @@ function MainApp({ role, user, setRole, teacherId }) {
     showToast('강사 정보가 수정되었습니다.');
   };
 
-  const handleAddInstructor = () => {
+  const handleAddInstructor = async () => {
     if (!newInstName || !newInstId) return showToast('강사 정보를 모두 입력하세요.', 'error');
     const newId = 'inst_' + Date.now();
     const newInst = { id: newId, name: newInstName, username: newInstId };
 
-    setInstructors([...instructors, newInst]);
-    updatePartialData({ [`instructors.${newId}`]: newInst });
+    try {
+      const batch = writeBatch(db);
+      const roleRef = doc(db, 'artifacts', appId, 'public', 'data', 'academy', 'userRoles', newInstId);
+      batch.set(roleRef, { role: 'teacher', teacherId: newId });
+      
+      const mainRef = doc(db, 'artifacts', appId, 'public', 'data', 'academy', 'mainData');
+      batch.update(mainRef, { [`instructors.${newId}`]: newInst });
 
-    setNewInstName(''); setNewInstId(''); 
-    showToast('신규 강사가 생성되었습니다.');
+      await batch.commit();
+
+      setInstructors([...instructors, newInst]);
+      setNewInstName(''); setNewInstId(''); 
+      showToast('신규 강사가 생성되었습니다.');
+    } catch (e) {
+      showToast('강사 생성 중 서버 오류가 발생했습니다.', 'error');
+      console.error(e);
+    }
   };
 
   const handleDeleteInstructor = (id) => {
@@ -670,10 +702,38 @@ function MainApp({ role, user, setRole, teacherId }) {
       showToast('이 강사에게 배정된 반이 있습니다. 반을 먼저 변경/삭제하세요.', 'error');
       return;
     }
-    if (window.confirm('정말 이 강사 계정을 삭제하시겠습니까?')) {
-      setInstructors(instructors.filter(i => i.id !== id));
-      updatePartialData({ [`instructors.${id}`]: deleteField() });
+    setInstructorToDelete(id); // 모달 띄우기 트리거
+  };
+
+  const confirmDeleteInstructor = async () => {
+    if (!instructorToDelete) return;
+    
+    const instToDelete = instructors.find(i => i.id === instructorToDelete);
+    if (!instToDelete) {
+      showToast('삭제할 강사 정보를 찾을 수 없습니다.', 'error');
+      setInstructorToDelete(null);
+      return; 
+    }
+    
+    try {
+      const batch = writeBatch(db);
+      
+      if (instToDelete.username) {
+        const roleRef = doc(db, 'artifacts', appId, 'public', 'data', 'academy', 'userRoles', instToDelete.username);
+        batch.delete(roleRef);
+      }
+      
+      const mainRef = doc(db, 'artifacts', appId, 'public', 'data', 'academy', 'mainData');
+      batch.update(mainRef, { [`instructors.${instructorToDelete}`]: deleteField() });
+
+      await batch.commit();
+
+      setInstructors(instructors.filter(i => i.id !== instructorToDelete));
+      setInstructorToDelete(null);
       showToast('강사 계정이 삭제되었습니다.', 'success');
+    } catch (e) {
+      showToast('강사 삭제 중 서버 오류가 발생했습니다.', 'error');
+      setInstructorToDelete(null);
     }
   };
 
@@ -1369,6 +1429,22 @@ function MainApp({ role, user, setRole, teacherId }) {
             <div className="flex justify-end gap-3">
               <button onClick={() => setTestToDelete(null)} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg font-medium">취소</button>
               <button onClick={confirmDeleteTest} className="px-4 py-2 bg-red-600 text-white rounded-lg font-medium shadow-sm">삭제하기</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {instructorToDelete && !isReadOnly && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-[60]">
+          <div className="bg-white p-6 rounded-xl shadow-2xl max-w-sm w-full mx-4">
+            <div className="flex items-center gap-3 text-red-600 mb-4">
+              <AlertCircle size={24} />
+              <h3 className="text-lg font-bold text-gray-900">강사 계정 삭제</h3>
+            </div>
+            <p className="text-gray-600 mb-6">정말 이 강사 계정을 삭제하시겠습니까?<br/>이 작업은 되돌릴 수 없습니다.</p>
+            <div className="flex justify-end gap-3">
+              <button onClick={() => setInstructorToDelete(null)} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 font-medium">취소</button>
+              <button onClick={confirmDeleteInstructor} className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 font-medium shadow-sm">삭제하기</button>
             </div>
           </div>
         </div>
@@ -2333,6 +2409,29 @@ function MainApp({ role, user, setRole, teacherId }) {
               
               {role === 'admin' && (
                 <>
+                  <div className="bg-purple-50 p-6 rounded-xl border border-purple-200 shadow-sm mb-6">
+                    <h3 className="text-lg font-bold text-purple-900 mb-2 flex items-center gap-2"><Users size={20} /> 기존 강사 인증서 일괄 발급 (마이그레이션)</h3>
+                    <p className="text-sm text-purple-700 mb-4">업데이트 이전부터 근무 중이던 기존 강사들이 새 시스템에 로그인할 수 있도록 전자 신분증을 즉시 발급합니다. (최초 1회만 실행하면 됩니다)</p>
+                    <button onClick={async () => {
+                      try {
+                        const batch = writeBatch(db);
+                        let count = 0;
+                        instructors.forEach(inst => {
+                          if(inst.username) {
+                            const roleRef = doc(db, 'artifacts', appId, 'public', 'data', 'academy', 'userRoles', inst.username);
+                            batch.set(roleRef, { role: 'teacher', teacherId: inst.id });
+                            count++;
+                          }
+                        });
+                        await batch.commit();
+                        alert(`총 ${count}명의 기존 강사에게 신분증 발급이 완료되었습니다! 이제 정상 로그인 가능합니다.`);
+                      } catch(e) {
+                        alert('발급 중 오류가 발생했습니다.');
+                        console.error(e);
+                      }
+                    }} className="bg-purple-600 text-white px-4 py-2 rounded font-bold hover:bg-purple-700 shadow-sm">기존 강사 신분증 일괄 발급하기</button>
+                  </div>
+                  
                   <div className="bg-red-50 p-6 rounded-xl border border-red-200 shadow-sm mb-6">
                     <h3 className="text-lg font-bold text-red-900 mb-2 flex items-center gap-2"><AlertCircle size={20} /> 서버 데이터베이스 강제 청소</h3>
                     <p className="text-sm text-red-700 mb-4">삭제해도 계속 부활하는 과거의 유령 테스트 데이터들을 서버에서 완전히 날려버립니다.</p>
