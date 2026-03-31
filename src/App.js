@@ -752,7 +752,13 @@ function MainApp({ role, user, setRole, teacherId }) {
     if (!assignedInst) return showToast('담당 강사를 지정해주세요.', 'error');
 
     const newId = Date.now().toString();
-    const newClass = { id: newId, name: newClassName, days: newClassDays, instructorId: assignedInst, type: newClassType };
+    const newClass = { 
+    id: newId, 
+    name: newClassName, 
+    days: newClassDays.length > 0 ? newClassDays : [],  // ← 빈 배열 보장
+    instructorId: assignedInst, 
+    type: newClassType 
+    };
 
     setClasses([...classes, newClass]);
     updatePartialData({ [`classes.${newId}`]: newClass });
@@ -909,8 +915,8 @@ function MainApp({ role, user, setRole, teacherId }) {
 
   const selectedDayOfWeek = getLocalDayOfWeek(selectedDate);
   const targetClasses = useMemo(() => 
-    visibleClasses.filter(c => c.days.includes(selectedDayOfWeek)), 
-    [visibleClasses, selectedDayOfWeek]
+  visibleClasses.filter(c => (c.days || []).includes(selectedDayOfWeek)), 
+  [visibleClasses, selectedDayOfWeek]
   );
 
   useEffect(() => {
@@ -935,7 +941,7 @@ function MainApp({ role, user, setRole, teacherId }) {
       } else {
         const wDates = getWeekDays(selectedDate);
         visibleClasses.forEach(c => {
-          const classDays = wDates.filter(d => c.days.includes(getLocalDayOfWeek(d)));
+          const classDays = wDates.filter(d => (c.days || []).includes(getLocalDayOfWeek(d)));
           visibleStudents.filter(s => s.classId === c.id).forEach(s => classDays.forEach(d => ensureRecord(d, s.id)));
         });
       }
@@ -1833,15 +1839,15 @@ function MainApp({ role, user, setRole, teacherId }) {
                                         <span>과제 달성률</span>
                                         <span className={`font-bold ${record.progress === 100 ? 'text-green-600' : 'text-blue-600'}`}>{record.progress}%</span>
                                       </div>
-                                      <div className={`flex w-full bg-gray-100 rounded-md overflow-hidden border border-gray-200 ${isReadOnly || record.remark.includes('결석') ? 'opacity-40 grayscale bg-gray-200' : ''}`}>
+                                      <div className={`flex w-full bg-gray-100 rounded-md overflow-hidden border border-gray-200 ${isReadOnly || (record.remark || '').includes('결석') ? 'opacity-40 grayscale bg-gray-200' : ''}`}>
                                         {[0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100].map((val) => (
                                           <button key={val} 
                                             onClick={() => handleRecordChange(student.id, 'progress', val)}
-                                            disabled={isReadOnly || record.remark.includes('결석')}
+                                            disabled={isReadOnly || (record.remark || '').includes('결석')}
                                             className={`flex-1 h-8 text-[10px] font-medium transition-colors outline-none
                                               ${record.progress === val ? 'bg-blue-600 text-white font-bold scale-105 shadow-sm relative z-10' : 'text-gray-500 hover:bg-gray-200'}
                                               ${record.progress === 100 && val === 100 ? '!bg-green-500' : ''}
-                                              ${(isReadOnly || record.remark.includes('결석')) ? 'cursor-not-allowed hover:bg-transparent' : ''}`}
+                                              ${(isReadOnly || (record.remark || '').includes('결석')) ? 'cursor-not-allowed hover:bg-transparent' : ''}`}
                                           >
                                             {val === 0 || val === 100 ? `${val}%` : val}
                                           </button>
@@ -1854,8 +1860,8 @@ function MainApp({ role, user, setRole, teacherId }) {
                                       <button onClick={() => importPreviousRemark(student.id, selectedDate)} title="이전 수업 코멘트 불러오기" className="p-2 text-gray-400 hover:text-blue-600 rounded bg-white border border-gray-200 hover:bg-blue-50 transition-colors flex-shrink-0">
                                         <Copy size={16} />
                                       </button>
-                                      <button onClick={() => handleQuickRemark(selectedDate, student.id, '결석')} className={`px-3 py-1.5 text-xs font-bold rounded border transition-colors flex-shrink-0 ${record.remark.includes('결석') ? 'bg-red-500 text-white border-red-600' : 'bg-red-50 text-red-600 border-red-100 hover:bg-red-100'}`}>결석</button>
-                                      <button onClick={() => handleQuickRemark(selectedDate, student.id, '지각')} className={`px-3 py-1.5 text-xs font-bold rounded border transition-colors flex-shrink-0 ${record.remark.includes('지각') ? 'bg-orange-500 text-white border-orange-600' : 'bg-orange-50 text-orange-600 border-orange-100 hover:bg-orange-100'}`}>지각</button>
+                                      <button onClick={() => handleQuickRemark(selectedDate, student.id, '결석')} className={`px-3 py-1.5 text-xs font-bold rounded border transition-colors flex-shrink-0 ${(record.remark || '').includes('결석') ? 'bg-red-500 text-white border-red-600' : 'bg-red-50 text-red-600 border-red-100 hover:bg-red-100'}`}>결석</button>
+                                      <button onClick={() => handleQuickRemark(selectedDate, student.id, '지각')} className={`px-3 py-1.5 text-xs font-bold rounded border transition-colors flex-shrink-0 ${(record.remark || '').includes('지각') ? 'bg-orange-500 text-white border-orange-600' : 'bg-orange-50 text-orange-600 border-orange-100 hover:bg-orange-100'}`}>지각</button>
                                     </div>
                                   </div>
                                 )
@@ -1874,7 +1880,7 @@ function MainApp({ role, user, setRole, teacherId }) {
                     const classStudents = visibleStudents.filter(s => s.classId === cls.id).sort((a, b) => a.name.localeCompare(b.name, 'ko-KR'));
                     if (classStudents.length === 0) return null;
 
-                    const weekDates = getWeekDays(selectedDate).filter(date => cls.days.includes(getLocalDayOfWeek(date)));
+                    const weekDates = getWeekDays(selectedDate).filter(date => (cls.days || []).includes(getLocalDayOfWeek(date)));
                     if (weekDates.length === 0) return null;
 
                     return (
