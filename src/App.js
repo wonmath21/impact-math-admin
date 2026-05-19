@@ -322,18 +322,20 @@ function MainApp({ role, user, setRole, teacherId }) {
   const [classWeeklyProgress, setClassWeeklyProgress] = useState({});
   const [individualWeeklyProgress, setIndividualWeeklyProgress] = useState({});
   const [systemSettings, setSystemSettings] = useState(() => loadData('systemSettings', { title: '임팩트 수학학원', iconUrl: '' }));
+  
   const [filterInstructor, setFilterInstructor] = useState('');
+  const [studentSearchTerm, setStudentSearchTerm] = useState(''); // 이름 부분 검색 State 추가
 
   const [offlineTemplate, setOfflineTemplate] = useState(DEFAULT_TEMPLATE);
   const [testItemTemplate, setTestItemTemplate] = useState(DEFAULT_TEST_ITEM_TEMPLATE);
   const [noTestMessage, setNoTestMessage] = useState(DEFAULT_NO_TEST_MSG);
 
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
-  const [testClassId, setTestClassId] = useState('c1');
+  const [testClassId, setTestClassId] = useState('');
   const [testErrors, setTestErrors] = useState({}); 
   const [reportStartDate, setReportStartDate] = useState(lastWeekDatesInit.start);
   const [reportEndDate, setReportEndDate] = useState(lastWeekDatesInit.end);
-  const [reportClassId, setReportClassId] = useState('c1');
+  const [reportClassId, setReportClassId] = useState('');
   
   const [viewMode, setViewMode] = useState('daily');
   const [sortConfig, setSortConfig] = useState({ key: 'name', direction: 'asc' });
@@ -836,6 +838,7 @@ function MainApp({ role, user, setRole, teacherId }) {
   };
 
   const saveEditedStudent = () => {
+    if (!editStudentData.name.trim()) return showToast('이름을 입력해주세요.', 'error');
     const updatedStudent = { ...students.find(s => s.id === editingStudentId), ...editStudentData };
     
     setStudents(students.map(s => s.id === editingStudentId ? updatedStudent : s));
@@ -868,6 +871,11 @@ function MainApp({ role, user, setRole, teacherId }) {
         return cls && cls.instructorId === filterInstructor;
       });
     }
+    // 학생 이름 부분 검색 필터 추가
+    if (studentSearchTerm.trim()) {
+      filtered = filtered.filter(s => s.name.includes(studentSearchTerm.trim()));
+    }
+    
     return filtered.sort((a, b) => {
       let aVal = a[sortConfig.key]; let bVal = b[sortConfig.key];
       if (sortConfig.key === 'classId') {
@@ -1027,6 +1035,16 @@ function MainApp({ role, user, setRole, teacherId }) {
   // ================================================================
   // SECTION 11 : 주간 테스트 함수들 
   // ================================================================
+  useEffect(() => {
+    if (activeTab === 'tests' && testClassId) {
+      const selectedClass = classes.find(c => c.id === testClassId);
+      const classStds = students.filter(s => s.classId === testClassId);
+      if (selectedClass?.type === 'individual' && !selectedIndivStudent && classStds.length > 0) {
+        setSelectedIndivStudent('all');
+      }
+    }
+  }, [activeTab, testClassId, classes, students, selectedIndivStudent]);
+
   const handleAddLectureTestRow = () => {
     if (isReadOnly || !testClassId) return;
     const newId = 'test_' + Date.now();
@@ -1353,28 +1371,6 @@ function MainApp({ role, user, setRole, teacherId }) {
         </div>
       )}
 
-      {/* 📍 여기에 붙여넣으세요: 🚀 전송 상태 UI 시작 */}
-      <div className="fixed bottom-6 right-6 z-[100] flex flex-col items-end gap-2 pointer-events-none transition-all">
-        {syncState.pending > 0 && syncState.failed === 0 && (
-          <div className="bg-gray-800 text-white px-5 py-3 rounded-full shadow-2xl flex items-center gap-2 text-sm font-bold">
-            <Loader2 className="animate-spin text-blue-400" size={18} />
-            <span>데이터 안전하게 저장 중...</span>
-          </div>
-        )}
-        {syncState.pending === 0 && syncState.failed === 0 && Object.keys(syncQueueRef.current).length === 0 && (
-          <div className="bg-green-50 text-green-700 border border-green-200 px-5 py-3 rounded-full shadow-xl flex items-center gap-2 text-sm font-bold opacity-0 animate-[fadeInOut_3s_ease-in-out]">
-            <Check className="text-green-600" size={18} />
-            <span>모든 데이터 안전하게 저장됨</span>
-          </div>
-        )}
-        {syncState.failed > 0 && (
-          <div className="bg-red-600 text-white px-5 py-3 rounded-full shadow-2xl flex items-center gap-2 text-sm font-bold pointer-events-auto">
-            <AlertCircle size={18} />
-            <span>저장 실패! ({syncState.failed}건) 네트워크 확인 요망</span>
-          </div>
-        )}
-        <style>{`@keyframes fadeInOut { 0% { opacity: 0; transform: translateY(10px); } 10% { opacity: 1; transform: translateY(0); } 90% { opacity: 1; transform: translateY(0); } 100% { opacity: 0; transform: translateY(10px); } }`}</style>
-      </div>
       {/* 📍 전송 상태 UI 끝 */}
 
       {classDeleteWarning && !isReadOnly && (
@@ -1399,7 +1395,7 @@ function MainApp({ role, user, setRole, teacherId }) {
               <AlertCircle size={24} />
               <h3 className="text-lg font-bold text-gray-900">반 삭제 확인</h3>
             </div>
-            <p className="text-gray-600 mb-6">정말 이 반을 삭제하시겠습니까?<br/>이 작업은 되돌릴 수 없습니다.</p>
+            <p className="text-gray-600 mb-6">정말 이 반을 삭제하시겠습니까?<br/>이 작업은 되돌릴 수 세없습니다.</p>
             <div className="flex justify-end gap-3">
               <button onClick={() => setClassToDelete(null)} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 font-medium">취소</button>
               <button onClick={confirmDeleteClass} className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 font-medium shadow-sm">삭제하기</button>
@@ -1696,15 +1692,23 @@ function MainApp({ role, user, setRole, teacherId }) {
                 </div>
               )}
               
-              {(role === 'admin' || role === 'office') && (
-                <div className="mb-4 flex items-center gap-2 bg-white p-3 rounded-lg border border-gray-200 shadow-sm w-fit">
-                  <span className="text-sm font-bold text-gray-700">👨‍🏫 강사별 학생 보기:</span>
-                  <select value={filterInstructor} onChange={e => setFilterInstructor(e.target.value)} className="border border-gray-300 rounded p-1.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none">
-                    <option value="">전체 강사</option>
-                    {instructors.map(inst => <option key={inst.id} value={inst.id}>{inst.name} 선생님</option>)}
-                  </select>
+              <div className="mb-4 flex flex-wrap items-center gap-4 bg-white p-3 rounded-lg border border-gray-200 shadow-sm w-fit">
+                {(role === 'admin' || role === 'office') && (
+                  <div className="flex items-center gap-2 pr-4 border-r border-gray-200">
+                    <span className="text-sm font-bold text-gray-700">👨‍🏫 강사별 보기:</span>
+                    <select value={filterInstructor} onChange={e => setFilterInstructor(e.target.value)} className="border border-gray-300 rounded p-1.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none">
+                      <option value="">전체 강사</option>
+                      {instructors.map(inst => <option key={inst.id} value={inst.id}>{inst.name} 선생님</option>)}
+                    </select>
+                  </div>
+                )}
+                {/* 🔍 학생 이름 검색 바 추가 */}
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-bold text-gray-700">🔍 학생 검색:</span>
+                  <input type="text" value={studentSearchTerm} onChange={e => setStudentSearchTerm(e.target.value)} placeholder="이름 일부 입력 (예: 김)" className="border border-gray-300 rounded p-1.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none w-48" />
                 </div>
-              )}
+              </div>
+
               <div className="overflow-x-auto rounded-lg border border-gray-200 shadow-sm">
                 <table className="w-full text-left border-collapse">
                   <thead>
@@ -1752,7 +1756,7 @@ function MainApp({ role, user, setRole, teacherId }) {
                         </tr>
                       )
                     })}
-                    {visibleStudents.length === 0 && <tr><td colSpan="4" className="text-center p-8 text-gray-500">등록된 학생이 없습니다.</td></tr>}
+                    {getSortedStudentsForManagement().length === 0 && <tr><td colSpan="5" className="text-center p-8 text-gray-500">조건에 맞는 학생이 없습니다.</td></tr>}
                   </tbody>
                 </table>
               </div>
@@ -2014,8 +2018,7 @@ function MainApp({ role, user, setRole, teacherId }) {
                   // =====================================================================
                   if (isIndividual) {
                     if (classStds.length === 0) return <div className="text-center p-8 text-gray-500">학생을 먼저 추가해주세요.</div>;
-                    
-                    if (!selectedIndivStudent && classStds.length > 0) setSelectedIndivStudent('all');
+                  
                     const isViewAll = selectedIndivStudent === 'all';
                     
                     return (
@@ -2304,12 +2307,37 @@ function MainApp({ role, user, setRole, teacherId }) {
 
                     const stdClass = visibleClasses.find(c => c.id === student.classId);
                     const currentWeeklyProgress = stdClass?.type === 'individual' ? individualWeeklyProgress[student.id] : classWeeklyProgress[student.classId];
+           
+                    // ✅ 이번주 테스트 기록 여부 체크 로직 추가
+                    // ✅ 이번주 테스트 기록 여부 체크 로직 (undefined 예외 처리 추가)
+                    let hasTestThisWeek = false;
+                    if (stdClass?.type === 'individual') {
+                      hasTestThisWeek = Object.values(individualTestRecords).some(t => 
+                        t.studentId === student.id && 
+                        t.date >= reportStartDate && 
+                        t.date <= reportEndDate && 
+                        t.score !== undefined && 
+                        t.score !== ''
+                      );
+                    } else {
+                      hasTestThisWeek = Object.values(testRecords).some(t => 
+                        t.classId === student.classId && 
+                        t.date >= reportStartDate && 
+                        t.date <= reportEndDate && 
+                        t.scores?.[student.id]?.score !== undefined && 
+                        t.scores?.[student.id]?.score !== ''
+                      );
+                    }
 
                     return (
                       <div key={student.id} className="border border-gray-300 rounded-xl p-5 bg-white shadow-sm flex flex-col gap-4 relative overflow-hidden">
                         
                         <div className="flex justify-between items-center border-b border-gray-100 pb-3 relative z-20">
-                          <div className="font-bold text-lg text-gray-900">{student.name} <span className="text-sm font-normal text-gray-500">({student.school})</span></div>
+                          <div className="font-bold text-lg text-gray-900 flex flex-wrap items-center gap-1">
+                          {student.name} <span className="text-sm font-normal text-gray-500">({student.school})</span>
+                          {!hasTestThisWeek && <span className="text-red-500 text-xs font-bold ml-1 whitespace-nowrap">※ 테스트결과 미입력</span>}
+                          </div>
+                          
                           <div className="flex gap-2">
                             <button onClick={() => {if(!isReadOnly) updatePartialData({ [`excludeFromReport.${student.id}`]: !isExcluded }); setExcludeFromReport(prev => ({...prev, [student.id]: !prev[student.id]}));}} disabled={isReadOnly} className={`px-2.5 py-1.5 rounded text-xs font-bold transition flex items-center gap-1 border ${isExcluded ? 'bg-red-50 text-red-600 border-red-200' : 'bg-gray-100 text-gray-500 border-transparent hover:bg-gray-200'}`}>
                               {isExcluded ? <Check size={12}/> : <X size={12}/>} {isExcluded ? '전송 포함하기' : '전송 제외'}
@@ -2323,7 +2351,20 @@ function MainApp({ role, user, setRole, teacherId }) {
                             {visibleClasses.find(c => c.id === student.classId)?.type === 'individual' && (
                               <input type="text" value={individualWeeklyProgress[student.id] || ''} onChange={(e) => handleIndividualWeeklyProgressChange(student.id, e.target.value)} readOnly={isReadOnly} placeholder="학생 개별 주간 진도 입력" className={`w-full border border-gray-300 rounded-md p-3 text-sm focus:ring-2 focus:ring-indigo-500 outline-none mb-3 ${isReadOnly ? 'bg-gray-50' : 'bg-indigo-50/50'}`} />
                             )}
-                            <label className="text-[10px] font-bold text-gray-500 mb-1 block">선생님 특별 비고 작성란 (결석/지각 날짜가 표기되어 있습니다)</label>
+                            <div className="flex justify-between items-end mb-1">
+                              <label className="text-[10px] font-bold text-gray-500 block">선생님 특별 비고 작성란 (결석/지각 날짜가 표기되어 있습니다)</label>
+                              <button 
+                                onClick={() => {
+                                  if (window.confirm('초기화 하시겠습니까? 작성하신 내용이 삭제됩니다.')) {
+                                    handleReportRemarkChange(student.id, getAutoAttendanceRemark(student.id));
+                                  }
+                                }}
+                                disabled={isReadOnly || isExcluded}
+                                className="px-2 py-0.5 bg-gray-200 text-gray-600 rounded text-[10px] font-bold hover:bg-gray-300 transition-colors disabled:opacity-50"
+                              >
+                                초기화
+                              </button>
+                            </div>
                             <textarea value={manualRemark} onChange={(e) => handleReportRemarkChange(student.id, e.target.value)} readOnly={isReadOnly} placeholder="이번 주 지각/결석 기록이 자동으로 표시되며, 추가할 내용을 자유롭게 적어주세요." className={`w-full border border-gray-300 rounded-md p-3 text-sm focus:ring-2 focus:ring-indigo-500 outline-none resize-y h-20 ${isReadOnly ? 'bg-gray-100 text-gray-600' : 'bg-yellow-50/30'}`} />
                           </div>
                           
@@ -2344,7 +2385,7 @@ function MainApp({ role, user, setRole, teacherId }) {
                                       disabled={isExcluded}
                                       className="flex items-center gap-1 px-2 py-1 rounded transition-colors hover:bg-red-50 text-red-500 disabled:opacity-50"
                                     >
-                                      <RefreshCcw size={14} /> <span className="text-xs font-bold">초기화</span>
+                                      <RefreshCcw size={14} /> <span className="text-xs font-bold">리셋</span>
                                     </button>
                                   )}
                                   
